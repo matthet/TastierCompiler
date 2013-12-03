@@ -6,11 +6,12 @@ program Test {
   void Main() {
     write -3;
     read i;
+    write i;
     if (i > 10) {
       int sum;
-      sum = 0;
+      sum := 0;
       while (i > 0) {
-        sum = sum + i; i = i - 1;
+        sum := sum + i; i := i - 1;
       }
       write sum;
     } else {
