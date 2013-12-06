@@ -70,7 +70,7 @@ COMPILER Tastier
   CALL instruction with that label as a target.
 
   To summarize:
-    * Symbol.Item1 -> name
+v    * Symbol.Item1 -> name
     * Symbol.Item2 -> kind
     * Symbol.Item3 -> type
     * Symbol.Item4 -> stack frame pointer
@@ -271,7 +271,7 @@ letter = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz".
 TOKENS
   ident  = letter {letter | digit}.
   number = digit {digit}.
-  string = '"' {digit | letter | space}.
+  string = '"' {digit | letter | space} '"'.
 
 COMMENTS FROM "/*" TO "*/" NESTED
 COMMENTS FROM "//" TO lf
@@ -340,6 +340,31 @@ Factor<out TastierType type>    (.  int n; Symbol sym; string name; .)
                                     n = Convert.ToInt32(t.val);
                                     program.Add(new Instruction("", "Const " + n));
                                     type = TastierType.Integer;
+                                .)
+
+  | string                      (.
+                                    int len = 0;
+                                    foreach(char c in t.val) {
+                                      if(c != '"'){
+                                       len = len + 1;
+                                      }
+                                    }
+				    int stringStartAddress = nextFreeAddress;
+                                    program.Add(new Instruction("", "Const " + len));
+                                    program.Add(new Instruction("", "StoG " + (nextFreeAddress + 3)));
+                                    nextFreeAddress = nextFreeAddress + 1;
+
+                                    string rev = Reverse(t.val);
+
+                                    foreach(char c in rev) {
+                                      if(c != '"') {
+                                        program.Add(new Instruction("", "Const " + Convert.ToInt32(c)));
+                                        program.Add(new Instruction("", "StoG " + (nextFreeAddress+3)));
+                                        nextFreeAddress = nextFreeAddress + 1;
+                                      }
+                                    }
+				    type = TastierType.String;
+                                    program.Add(new Instruction("", "Const " + (stringStartAddress + 3)));
                                 .)
   | '-'
     Factor<out type>            (.
@@ -470,7 +495,7 @@ Stat                            (.  TastierType type, type1; string name; Symbol
                                       SemErr("cannot assign to non-variable");
                                     }
                                 .)
-   ( Expr<out type>	
+   Expr<out type>	
      [
        '?'                      (.
                                     if (type != TastierType.Boolean) SemErr("boolean type expected");
@@ -496,7 +521,7 @@ Stat                            (.  TastierType type, type1; string name; Symbol
                                       SemErr("incompatible types");
                                     }
 
-                                    if (sym.Item4 == 0) {
+                                    if (sym.Item4 == 0 || type == TastierType.String) {
                                       if (isExternal) {
                                         program.Add(new Instruction("", "StoG " + sym.Item1));
                                         // if the symbol is external, we also store it by name. The linker will resolve the name to an address.
@@ -508,33 +533,7 @@ Stat                            (.  TastierType type, type1; string name; Symbol
                                         program.Add(new Instruction("", "Sto " + lexicalLevelDifference + " " + sym.Item5));
                                     }
                                 .)
-  | string  			(.
-				    int len = 0;				
-				    foreach(char c in t.val) {
-				      if(c != '"'){
-				       len = len + 1;
-				      }
-				    }
-				    program.Add(new Instruction("", "Const " + (nextFreeAddress + 3)));
-                                    program.Add(new Instruction("", "StoG " + (sym.Item5+3)));
-				    program.Add(new Instruction("", "Const " + len));
-                                    program.Add(new Instruction("", "StoG " + (nextFreeAddress + 3)));
-                                    nextFreeAddress = nextFreeAddress + 1;
-
-				    string rev = Reverse(t.val);
-
-				    foreach(char c in rev) {
-				      if(c != '"') {
-                                        program.Add(new Instruction("", "Const " + Convert.ToInt32(c)));
-                                        program.Add(new Instruction("", "StoG " + (nextFreeAddress+3)));
-					nextFreeAddress = nextFreeAddress + 1;
-				        len = len + 1;
-				      }
-                                    }
-				.)
-   '\"')
-   ';'
-  
+  ';'
   | '(' ')' ';'                 (.
                                     if ((TastierKind)sym.Item2 != TastierKind.Proc) {
                                       SemErr("object is not a procedure");
