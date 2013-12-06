@@ -432,9 +432,10 @@ RelOp<out Instruction inst>
   ( '='
   | '<'                         (.  inst = new Instruction("", "Lss"); .)
   | '>'                         (.  inst = new Instruction("", "Gtr"); .)
-  | "!="			(.  inst = new Instruction("", "NotEgu"); .)
-  | "<="			(.  inst = new Instruction("", "LssOrEqu"); .)
   | ">="			(.  inst = new Instruction("", "GtrOrEqu"); .)
+  | "<="                        (.  inst = new Instruction("", "LssOrEqu"); .)
+  | "!="                        (.  inst = new Instruction("", "NotEgu"); .)
+
   ).
 
 /*------------------------------------------------------------------------*/
