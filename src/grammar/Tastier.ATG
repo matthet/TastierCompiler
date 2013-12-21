@@ -70,7 +70,7 @@ COMPILER Tastier
   CALL instruction with that label as a target.
 
   To summarize:
-v    * Symbol.Item1 -> name
+* Symbol.Item1 -> name
     * Symbol.Item2 -> kind
     * Symbol.Item3 -> type
     * Symbol.Item4 -> stack frame pointer
@@ -261,7 +261,7 @@ Symbol lookup(Stack<Scope> scopes, string name) {
 /*--------------------------------------------------------------------------*/
 
 CHARACTERS
-letter = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz".
+  letter = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz".
   digit = "0123456789".
   cr  = '\r'.
   lf  = '\n'.
@@ -272,6 +272,8 @@ TOKENS
   ident  = letter {letter | digit}.
   number = digit {digit}.
   string = '"' {digit | letter | space} '"'.
+  array1D = '[' digit ']'.
+  arrayXD = '[' digit ']' '[' digit ']'.
 
 COMMENTS FROM "/*" TO "*/" NESTED
 COMMENTS FROM "//" TO lf
@@ -349,7 +351,7 @@ Factor<out TastierType type>    (.  int n; Symbol sym; string name; .)
                                        len = len + 1;
                                       }
                                     }
-				    int stringStartAddress = nextFreeAddress;
+				                            int stringStartAddress = nextFreeAddress;
                                     program.Add(new Instruction("", "Const " + len));
                                     program.Add(new Instruction("", "StoG " + (nextFreeAddress + 3)));
                                     nextFreeAddress = nextFreeAddress + 1;
@@ -363,9 +365,10 @@ Factor<out TastierType type>    (.  int n; Symbol sym; string name; .)
                                         nextFreeAddress = nextFreeAddress + 1;
                                       }
                                     }
-				    type = TastierType.String;
+				                            type = TastierType.String;
                                     program.Add(new Instruction("", "Const " + (stringStartAddress + 3)));
                                 .)
+  | '['                         (. Console.WriteLine("Heyiiiii!"); .)
   | '-'
     Factor<out type>            (.
                                     if (type != TastierType.Integer) {
@@ -583,12 +586,13 @@ Stat                            (.  TastierType type, type1; string name; Symbol
                                     program.Add(new Instruction(openLabels.Pop(), "Nop")); // put the loop end label here
                                 .)
 
-| "for" '('			(. List<Instruction> actions = new List<Instruction>();
-				   int start; 
-				.)
+| "for" '('			                (.  List<Instruction> actions = new List<Instruction>();
+				                            int start; 
+				                        .)
    Ident<out name> ":="
-   Expr<out type>  ';'		(.
-				    sym =  lookup(openScopes, name);
+   Expr<out type>  ';'		
+                                (.
+				                            sym =  lookup(openScopes, name);
                                     if (sym.Item4 == 0) {
                                         program.Add(new Instruction("", "StoG " + (sym.Item5 + 3) ));
                                     } else {
@@ -596,37 +600,37 @@ Stat                            (.  TastierType type, type1; string name; Symbol
                                         program.Add(new Instruction("", "Sto " + lexicalLevelDifference + " " + sym.Item5));
                                     }
 	
-				    string loopStartLabel = generateLabel();
+				                            string loopStartLabel = generateLabel();
                                     openLabels.Push(generateLabel()); //second label is for the loop end
                                     program.Add(new Instruction(loopStartLabel, "Nop"));
                                 .)
-   Expr<out type> ';'		(.
-				    if ((TastierType)type != TastierType.Boolean) {
+   Expr<out type> ';'		        (.
+				                            if ((TastierType)type != TastierType.Boolean) {
                                       SemErr("boolean type expected");
                                     }
                                     program.Add(new Instruction("", "FJmp " + openLabels.Peek())); // jump to the loop end label if condition is false
-				    start = program.Count;
+				                            start = program.Count;
                                 .)
    Ident<out name> ":="
-   Expr<out type>		(.
-				    sym =  lookup(openScopes, name);
-				    if (sym.Item4 == 0) {
+   Expr<out type>		            (.
+				                            sym =  lookup(openScopes, name);
+				                            if (sym.Item4 == 0) {
                                         program.Add(new Instruction("", "StoG " + (sym.Item5 + 3) ));
                                     } else {
                                         int lexicalLevelDifference = Math.Abs(openScopes.Count - sym.Item4)-1;
                                         program.Add(new Instruction("", "Sto " + lexicalLevelDifference + " " + sym.Item5));
                                     }
 
-				    while(start < program.Count){
+				                            while(start < program.Count){
                                         actions.Add(program[start]);
                                         program.RemoveAt(start);
-                                   }
-				.)	   	
+                                    }
+				                        .)	   	
    ')'				
-   Stat				(.  
-				    foreach(Instruction i in actions){
-					program.Add(i);
-				    }
+   Stat				                  (.  
+				                            foreach(Instruction i in actions){
+					                             program.Add(i);
+				                            }
 					
                                     program.Add(new Instruction("", "Jmp " + loopStartLabel));
                                     program.Add(new Instruction(openLabels.Pop(), "Nop")); // put the loop end label here
@@ -710,12 +714,12 @@ Tastier                         (.  string name; bool external = false; .)
 
                                     header.Add(new Instruction("", ".names " + (externalDeclarations.Count + openScopes.Peek().Count)));
                                     foreach (Symbol s in openScopes.Peek()) {
-					if (s.Item2 == (int)TastierKind.Const) {
-					header.Add(new Instruction("", ".const " + ((int)s.Item3) + " " + s.Item1));
+					                          if (s.Item2 == (int)TastierKind.Const) {
+					                          header.Add(new Instruction("", ".const " + ((int)s.Item3) + " " + s.Item1));
                                       } else if (s.Item2 == (int)TastierKind.Var) {
                                         header.Add(new Instruction("", ".var " + ((int)s.Item3) + " " + s.Item1));
                                       } else if (s.Item2 == (int)TastierKind.Proc) {
-					header.Add(new Instruction("", ".proc " + s.Item1));
+					                            header.Add(new Instruction("", ".proc " + s.Item1));
                                       } else {
                                         SemErr("global item " + s.Item1 + " has no defined type");
                                       }
@@ -753,7 +757,7 @@ Type<out TastierType type>
 =                               (.  type = TastierType.Undefined; .)
  ( "int"                        (.  type = TastierType.Integer; .)
  | "bool"                       (.  type = TastierType.Boolean; .)
- | "string"			(.  type = TastierType.String; .)
+ | "string"			                (.  type = TastierType.String; .)
  ).
 
 /*------------------------------------------------------------------------*/
@@ -763,42 +767,42 @@ ConstDecl
   ConstList
   }.
 
-ConstList                       (. string name; Scope currentScope = openScopes.Peek();.)
+ConstList                       (.  string name; Scope currentScope = openScopes.Peek();.)
 =  Ident<out name>
                                 (.
-				   Symbol sym = new Symbol(name, (int)TastierKind.Const, (int)TastierType.Integer,openScopes.Count-1, nextFreeAddress);
-				   currentScope.Push(sym);
-				.)
+				                            Symbol sym = new Symbol(name, (int)TastierKind.Const, (int)TastierType.Integer,openScopes.Count-1, nextFreeAddress);
+				                            currentScope.Push(sym);
+				                        .)
   "="			        
-  number 			(.
-				   int n = Convert.ToInt32(t.val);
-				   constDecls.Push(new Instruction("", "StoG " + (nextFreeAddress+3)));
-                                   constDecls.Push(new Instruction("", "Const " + n));
-				   nextFreeAddress = nextFreeAddress + 1;
-				.)
+  number 			                   (.
+				                            int n = Convert.ToInt32(t.val);
+				                            constDecls.Push(new Instruction("", "StoG " + (nextFreeAddress+3)));
+                                    constDecls.Push(new Instruction("", "Const " + n));
+				                            nextFreeAddress = nextFreeAddress + 1;
+				                        .)
   ';'.
 
-VarDecl<bool external>          (.
-                                    string name; TastierType type; Scope currentScope = openScopes.Peek();
-                                .)
+VarDecl<bool external>          (. string name; TastierType type, type1; Scope currentScope = openScopes.Peek(); .)
 = Type<out type>
+  ['[' ']' [ '[' ']' ] ]
   Ident<out name>               (.
                                     if (external) {
                                       externalDeclarations.Push(new Symbol(name, (int)TastierKind.Var, (int)type, 0, 0));
                                     } else {
-				      currentScope.Push(new Symbol(name, (int)TastierKind.Var, (int)type, openScopes.Count-1, nextFreeAddress));
-				      nextFreeAddress = nextFreeAddress + 1;
-				    }
+				                              currentScope.Push(new Symbol(name, (int)TastierKind.Var, (int)type, openScopes.Count-1, nextFreeAddress));
+				                              nextFreeAddress = nextFreeAddress + 1;
+				                            }
                                 .)
-  { ',' Ident<out name>         (.
+    { ',' Ident<out name>     (.
                                     if (external) {
                                       externalDeclarations.Push(new Symbol(name, (int)TastierKind.Var, (int)type, 0, 0));
                                     } else {
                                       currentScope.Push(new Symbol(name, (int)TastierKind.Var, (int)type, openScopes.Count-1, nextFreeAddress));
-				      nextFreeAddress = nextFreeAddress + 1;
+				                              nextFreeAddress = nextFreeAddress + 1;
                                     }
                                 .)
-  } ';'.
+    }
+  ';'.
 
 ExternDecl                      (.  string name; bool external = true; Scope currentScope = openScopes.Peek(); int count = currentScope.Count; .)
 = "external"
