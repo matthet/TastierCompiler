@@ -8,7 +8,8 @@ COMPILER Tastier
     Undefined,
     Integer,
     Boolean,
-    String
+    String,
+    Array
   };
 
   enum TastierKind : int {  // kinds of symbol
@@ -112,6 +113,14 @@ Stack<Scope> openScopes = new Stack<Scope>();
 Scope externalDeclarations = new Scope();
 
 Stack<Instruction> constDecls = new Stack<Instruction>(); 
+
+/*using Variables = System.Tuple<string, int>;
+  Variables.Item1 -> var name
+  Variables.Item2 -> array type or -1 if not array
+  Variables.Item3 -> array elements type or variable type if not arry
+*/
+
+List<Variable> varsList = new List<Variable>();
 
 public static string Reverse(string s) {
     char[] charArray = s.ToCharArray();
@@ -267,13 +276,12 @@ CHARACTERS
   lf  = '\n'.
   tab = '\t'.
   space = '\u0020'.
+  stringChars = ANY - cr - lf - '\"'.
 
 TOKENS
   ident  = letter {letter | digit}.
   number = digit {digit}.
-  string = '"' {digit | letter | space} '"'.
-  array1D = '[' digit ']'.
-  arrayXD = '[' digit ']' '[' digit ']'.
+  string = '"' {stringChars} '"'.
 
 COMMENTS FROM "/*" TO "*/" NESTED
 COMMENTS FROM "//" TO lf
@@ -343,7 +351,6 @@ Factor<out TastierType type>    (.  int n; Symbol sym; string name; .)
                                     program.Add(new Instruction("", "Const " + n));
                                     type = TastierType.Integer;
                                 .)
-
   | string                      (.
                                     int len = 0;
                                     foreach(char c in t.val) {
@@ -361,14 +368,13 @@ Factor<out TastierType type>    (.  int n; Symbol sym; string name; .)
                                     foreach(char c in rev) {
                                       if(c != '"') {
                                         program.Add(new Instruction("", "Const " + Convert.ToInt32(c)));
-                                        program.Add(new Instruction("", "StoG " + (nextFreeAddress+3)));
+                                        program.Add(new Instruction("", "StoG " + (nextFreeAddress + 3)));
                                         nextFreeAddress = nextFreeAddress + 1;
                                       }
                                     }
 				                            type = TastierType.String;
                                     program.Add(new Instruction("", "Const " + (stringStartAddress + 3)));
                                 .)
-  | '['                         (. Console.WriteLine("Heyiiiii!"); .)
   | '-'
     Factor<out type>            (.
                                     if (type != TastierType.Integer) {
@@ -423,11 +429,11 @@ ProcDecl                        (.  string name; string label; Scope currentScop
                                       the stack have been allocated, we can
                                       put the right value in.
                                     */
-				    if(name == "Main") {
-				       foreach(Instruction s in constDecls) {
-				          program.Add(s);
-				       }
-				    }	 	
+                        				    if(name == "Main") {
+                        				       foreach(Instruction s in constDecls) {
+                        				          program.Add(s);
+                        				       }
+                        				    }	 	
                                 .)
 
   { VarDecl<external> | Stat |  (.
@@ -456,11 +462,11 @@ ProcDecl                        (.  string name; string label; Scope currentScop
 /*------------------------------------------------------------------------*/
 
 RelOp<out Instruction inst>
-=                               (.  inst = new Instruction("", "Equ"); .)
-  ( '='
+=                               
+  ( '='                         (.  inst = new Instruction("", "Equ"); .)
   | '<'                         (.  inst = new Instruction("", "Lss"); .)
   | '>'                         (.  inst = new Instruction("", "Gtr"); .)
-  | ">="			(.  inst = new Instruction("", "GtrOrEqu"); .)
+  | ">="			                  (.  inst = new Instruction("", "GtrOrEqu"); .)
   | "<="                        (.  inst = new Instruction("", "LssOrEqu"); .)
   | "!="                        (.  inst = new Instruction("", "NotEgu"); .)
 
@@ -481,7 +487,9 @@ SimExpr<out TastierType type>   (.  TastierType type1; Instruction inst; .)
 
 /*------------------------------------------------------------------------*/
 
-Stat                            (.  TastierType type, type1; string name; Symbol sym; bool external = false; bool isExternal = false; .)
+Stat                            (.  TastierType type, type1; string name; Symbol sym; bool external = false; bool isExternal = false, arr = false; 
+                                    int x, y; Variable va = null; Scope currentScope = openScopes.Peek();
+                                .)
 
 = Ident<out name>               (.
                                     sym = lookup(openScopes, name);
@@ -490,16 +498,47 @@ Stat                            (.  TastierType type, type1; string name; Symbol
                                       isExternal = true;
                                     }
                                     if (sym == null) {
-                                      SemErr("reference to undefined constant or variable " + name);
+                                      foreach (Variable v in varsList) {
+                                        if ((v.Item1).Equals(name)) { 
+                                          if (v.Item2 != -1) {
+                                            va = v;
+                                            arr = true; break;
+                                          }
+                                        }
+                                      }
+                                      if (arr == false) SemErr("reference to undefined constant or variable " + name); arr = false;
                                     }
                                 .)
-   ( ":="                        (.
-                                    if (((TastierKind)sym.Item2 != TastierKind.Var)) {
-                                      SemErr("cannot assign to non-variable");
+   ( ":="                        
+    ( "new"                     (.  if (va.Item2 != (int)TastierType.Array) SemErr("invalid declaration"); .)
+      ( "int"                   (.  if (va.Item3 != (int)TastierType.Integer) { 
+                                      SemErr("type mismatch - array declared as different type"); SemErr("invalid declaration");
                                     }
                                 .)
-   Expr<out type>	
-     [
+      | "bool"                  (.  if (va.Item3 != (int)TastierType.Boolean) { 
+                                      SemErr("type mismatch - array declared as different type"); SemErr("invalid declaration"); 
+                                    }
+                                .)
+      | "string"                (.  if (va.Item3 != (int)TastierType.String) { 
+                                      SemErr("type mismatch - array declared as different type"); SemErr("invalid declaration");
+                                    }
+                                .)
+      )
+       '['                      (.  currentScope.Push(new Symbol(name, (int)TastierKind.Var, va.Item3, openScopes.Count-1, nextFreeAddress)); .)
+          number                (.  x = Convert.ToInt32(t.val); y = 1; .)
+        ']'                     
+        [ '[' number            (.  y = Convert.ToInt32(t.val); .)
+          ']' ]                  
+                                (.  int arrLen = (x * y);
+                                    for (int i = 0; i < arrLen; i++) {
+                                      program.Add(new Instruction("", "Const " + 0));
+                                      program.Add(new Instruction("", "StoG " + (nextFreeAddress + 3)));
+                                      nextFreeAddress = nextFreeAddress + 1;
+                                    }
+                                .)
+    
+    | Expr<out type>	          (.  if (((TastierKind)sym.Item2 != TastierKind.Var)) SemErr("cannot assign to non-variable"); .)
+      [
        '?'                      (.
                                     if (type != TastierType.Boolean) SemErr("boolean type expected");
                                     openLabels.Push(generateLabel());
@@ -515,28 +554,24 @@ Stat                            (.  TastierType type, type1; string name; Symbol
       Expr<out type1>           (.  if (type != type1) {
                                       SemErr("<expr1>:<expr2> of different types");
                                     } else {
-  				      program.Add(new Instruction(openLabels.Pop(), "Nop"));
+  				                          program.Add(new Instruction(openLabels.Pop(), "Nop"));
                                     }
-				.)
-    ]        
-				(.
+				                        .)
+      ]        
+				                        (.
                                     if (type != (TastierType)sym.Item3) {
                                       SemErr("incompatible types");
                                     }
 
                                     if (sym.Item4 == 0 || type == TastierType.String) {
-                                      if (isExternal) {
-                                        program.Add(new Instruction("", "StoG " + sym.Item1));
-                                        // if the symbol is external, we also store it by name. The linker will resolve the name to an address.
-                                      } else {
                                         program.Add(new Instruction("", "StoG " + (sym.Item5 + 3) ));
-                                      }
                                     } else {
                                         int lexicalLevelDifference = Math.Abs(openScopes.Count - sym.Item4)-1;
                                         program.Add(new Instruction("", "Sto " + lexicalLevelDifference + " " + sym.Item5));
                                     }
                                 .)
-  ';'
+    )';'
+
   | '(' ')' ';'                 (.
                                     if ((TastierKind)sym.Item2 != TastierKind.Proc) {
                                       SemErr("object is not a procedure");
@@ -570,7 +605,7 @@ Stat                            (.  TastierType type, type1; string name; Symbol
                                  .)
       [ "else"
         Stat
-      ]				 (.  program.Add(new Instruction(openLabels.Pop(), "Nop")); .)
+      ]				                  (.  program.Add(new Instruction(openLabels.Pop(), "Nop")); .)
 
 | "while"                       (.  string loopStartLabel = generateLabel();
                                     openLabels.Push(generateLabel()); //second label is for the loop end
@@ -672,18 +707,18 @@ Stat                            (.  TastierType type, type1; string name; Symbol
 
 | "write"
    Expr<out type>               (.
-				    if (type != TastierType.Integer && type != TastierType.String) {
-				      SemErr("integer or string type expected");
-				    } else {
-				        if (type == TastierType.Integer){ 
-				           program.Add(new Instruction("", "Write"));
-			                } else {
-				           program.Add(new Instruction("", "WriteStr"));  
-				        }
-				    }
+                        				    if (type != TastierType.Integer && type != TastierType.String) {
+                        				      SemErr("integer or string type expected");
+                        				    } else {
+                        				        if (type == TastierType.Integer){ 
+                        				           program.Add(new Instruction("", "Write"));
+                        			          } else {
+                        				           program.Add(new Instruction("", "WriteStr"));  
+                        				        }
+                        				    }
                                 .)
-   { ',' Expr<out type>		(.
-				    if (type != TastierType.Integer && type != TastierType.String) {
+   { ',' Expr<out type>		      (.
+				                            if (type != TastierType.Integer && type != TastierType.String) {
                                       SemErr("integer or string type expected");
                                     } else {
                                         if (type == TastierType.Integer){
@@ -692,7 +727,7 @@ Stat                            (.  TastierType type, type1; string name; Symbol
                                            program.Add(new Instruction("", "WriteStr"));
                                         }
                                     }
-				.)
+				                        .)
    } ';'
 
 | '{' { Stat | VarDecl<external> } '}' .
@@ -715,7 +750,7 @@ Tastier                         (.  string name; bool external = false; .)
                                     header.Add(new Instruction("", ".names " + (externalDeclarations.Count + openScopes.Peek().Count)));
                                     foreach (Symbol s in openScopes.Peek()) {
 					                          if (s.Item2 == (int)TastierKind.Const) {
-					                          header.Add(new Instruction("", ".const " + ((int)s.Item3) + " " + s.Item1));
+					                           header.Add(new Instruction("", ".const " + ((int)s.Item3) + " " + s.Item1));
                                       } else if (s.Item2 == (int)TastierKind.Var) {
                                         header.Add(new Instruction("", ".var " + ((int)s.Item3) + " " + s.Item1));
                                       } else if (s.Item2 == (int)TastierKind.Proc) {
@@ -757,10 +792,11 @@ Type<out TastierType type>
 =                               (.  type = TastierType.Undefined; .)
  ( "int"                        (.  type = TastierType.Integer; .)
  | "bool"                       (.  type = TastierType.Boolean; .)
- | "string"			                (.  type = TastierType.String; .)
+ | "string"                     (.  type = TastierType.String; .)
  ).
 
 /*------------------------------------------------------------------------*/
+
 ConstDecl
 = "const"
   {
@@ -782,24 +818,46 @@ ConstList                       (.  string name; Scope currentScope = openScopes
 				                        .)
   ';'.
 
-VarDecl<bool external>          (. string name; TastierType type, type1; Scope currentScope = openScopes.Peek(); .)
+VarDecl<bool external>          (. string name; TastierType type; Scope currentScope = openScopes.Peek(); bool arrDecl = false; .)
 = Type<out type>
-  ['[' ']' [ '[' ']' ] ]
+  ['[' ']'                      (. arrDecl = true; .)
+    [ '[' ']' ] 
+  ]
   Ident<out name>               (.
                                     if (external) {
                                       externalDeclarations.Push(new Symbol(name, (int)TastierKind.Var, (int)type, 0, 0));
                                     } else {
-				                              currentScope.Push(new Symbol(name, (int)TastierKind.Var, (int)type, openScopes.Count-1, nextFreeAddress));
-				                              nextFreeAddress = nextFreeAddress + 1;
-				                            }
+                                      foreach (Variable v in varsList) {
+                                        if ((v.Item1).Equals(name)) SemErr("duplicate variable " + name);
+                                        break;
+                                      }
+                                      if (arrDecl == false) {
+                                        currentScope.Push(new Symbol(name, (int)TastierKind.Var, (int)type, openScopes.Count-1, nextFreeAddress));
+                                        nextFreeAddress = nextFreeAddress + 1;
+                                        varsList.Add(new Variable(name, -1, (int)type));
+                                      } else {
+                                          varsList.Add(new Variable(name, (int)TastierType.Array, (int)type));
+                                          arrDecl = false;
+                                      }
+                                    }
                                 .)
-    { ',' Ident<out name>     (.
+    { ',' Ident<out name>       (.
                                     if (external) {
                                       externalDeclarations.Push(new Symbol(name, (int)TastierKind.Var, (int)type, 0, 0));
                                     } else {
-                                      currentScope.Push(new Symbol(name, (int)TastierKind.Var, (int)type, openScopes.Count-1, nextFreeAddress));
-				                              nextFreeAddress = nextFreeAddress + 1;
-                                    }
+                                      foreach (Variable v in varsList) {
+                                        if ((v.Item1).Equals(name)) SemErr("duplicate variable " + name);
+                                        break;
+                                      }
+                                      if (arrDecl == false) {
+                                        currentScope.Push(new Symbol(name, (int)TastierKind.Var, (int)type, openScopes.Count-1, nextFreeAddress));
+                                        nextFreeAddress = nextFreeAddress + 1;
+                                        varsList.Add(new Variable(name, -1, (int)type));
+                                      } else {
+                                          varsList.Add(new Variable(name, (int)TastierType.Array, (int)type));
+                                          arrDecl = false;
+                                      }
+                                    } 
                                 .)
     }
   ';'.
