@@ -114,13 +114,8 @@ Scope externalDeclarations = new Scope();
 
 Stack<Instruction> constDecls = new Stack<Instruction>(); 
 
-/*using Variables = System.Tuple<string, int, int, int, int, int>;
-  Variables.Item1 -> var name
-  Variables.Item2 -> type 'array' or -1 if not array
-  Variables.Item3 -> array length or -1 if not array
-*/
-
-List<Variable> varsList = new List<Variable>();
+List<string> varsList = new List<string>();
+List<arrayDecl> arraysList = new List<arrayDecl>();
 
 public static string Reverse(string s) {
     char[] charArray = s.ToCharArray();
@@ -335,38 +330,62 @@ Expr<out TastierType type>      (.  TastierType type1; Instruction inst; .)
 
 /*------------------------------------------------------------------------*/
 
-Factor<out TastierType type>    (.  int n; Symbol sym; string name; .)
+Factor<out TastierType type>    (.  Symbol sym; string name; bool arrAssign = false; List<int> indexes = new List<int>(); .)
 =                               (.  type = TastierType.Undefined; .)
   ( Ident<out name>             (.
-                                    bool isExternal = false; //CS3071 students can ignore external declarations, since they only deal with compilation of single files.
                                     sym = lookup(openScopes, name);
-                                    if (sym == null) {
-                                      sym = _lookup(externalDeclarations, name);
-                                      isExternal = true;
-                                    }
+                                    if (sym == null) SemErr("reference to undefined variable " + name);
+                                .)
+    { '['number                 (.  
+                                    int n = Convert.ToInt32(t.val);
+                                    indexes.Add(n);
+                                    arrAssign = true;
+                                .)    
+      ']'     
+    }    
+                                (.  type = (TastierType)sym.Item3;
+                                    if ((TastierKind)sym.Item2 == TastierKind.Var || (TastierKind)sym.Item2 == TastierKind.Const) {
+                                      if (sym.Item4 == 0 || type == TastierType.String || arrAssign == true) {
 
-                                    if (sym == null) {
-                                      SemErr("reference to undefined variable " + name);
-                                    }
-                                    else {
-                                      type = (TastierType)sym.Item3;
-                                      if ((TastierKind)sym.Item2 == TastierKind.Var || (TastierKind)sym.Item2 == TastierKind.Const) {
-                                        if (sym.Item4 == 0 || type == TastierType.String) {
-                                            if (isExternal) {
-                                              program.Add(new Instruction("", "LoadG " + sym.Item1));
-                                              // if the symbol is external, we load it by name. The linker will resolve the name to an address.
-                                            } else {
-                                              program.Add(new Instruction("", "LoadG " + (sym.Item5+3)));
+                                        if(arrAssign == true) {
+                                          arrayDecl temp = null; int arrLen = 1;
+
+                                          foreach (arrayDecl a in arraysList) {
+                                            if((a.Item1).Equals(name)){
+                                              temp = a; break;
                                             }
+                                          }
+
+                                          if (temp == null) SemErr("cannot index into non-array");
+                                          if (temp.Item2.Count != indexes.Count ) SemErr("cannot convert from "+indexes.Count+"D to "+temp.Item2.Count+"D");
+
+                                          for (int i = 0; i < temp.Item2.Count; i++) {
+                                            if ((temp.Item2[i] - indexes[i]) < 1) SemErr("array out of bounds exception: " + indexes[i]);
+                                            arrLen = arrLen * temp.Item2[i];
+                                          }
+
+                                          int offset = indexes[0];
+                                          for (int i = 1; i < temp.Item2.Count; i++) {
+                                            offset = offset * temp.Item2[i];
+                                            offset = offset + indexes[i];
+                                          }
+
+                                          if (offset > arrLen) SemErr("array out of bounds exception: " + offset);
+                                          program.Add(new Instruction("", "LoadG " + ((sym.Item5 + 3) + offset)));
+
                                         } else {
-                                            int lexicalLevelDifference = Math.Abs(openScopes.Count - sym.Item4)-1;
-                                            program.Add(new Instruction("", "Load " + lexicalLevelDifference + " " + sym.Item5));
+                                          program.Add(new Instruction("", "LoadG " + (sym.Item5+3)));
                                         }
-                                      } else SemErr("variable expected");
+                                      } else {
+                                        int lexicalLevelDifference = Math.Abs(openScopes.Count - sym.Item4)-1;
+                                        program.Add(new Instruction("", "Load " + lexicalLevelDifference + " " + sym.Item5));
+                                      }
+                                    } else {
+                                      SemErr("variable expected");
                                     }
                                 .)
   | number                      (.
-                                    n = Convert.ToInt32(t.val);
+                                    int n = Convert.ToInt32(t.val);
                                     program.Add(new Instruction("", "Const " + n));
                                     type = TastierType.Integer;
                                 .)
@@ -506,35 +525,54 @@ SimExpr<out TastierType type>   (.  TastierType type1; Instruction inst; .)
 
 /*------------------------------------------------------------------------*/
 
-Stat                            (.  TastierType type, type1; string name; Symbol sym; bool external = false; bool isExternal = false, arr = false; 
-                                    int index = -1; Variable va = null; Scope currentScope = openScopes.Peek();
+Stat                            (.  TastierType type, type1; string name; Symbol sym; bool external = false; bool isExternal = false; bool arrAssign = false; 
+                                    List<int> indexes = new List<int>();
                                 .)
 
 = Ident<out name>               (.
                                     sym = lookup(openScopes, name);
-                                    if (sym == null) SemErr("reference to undefined constant or variable " + name); arr = false; 
+                                    if (sym == null) SemErr("reference to undefined constant or variable " + name); 
                                 .)
-{ '['number                     (.  foreach (Variable v in varsList) {
-                                      if ((v.Item1).Equals(name)) {
-                                        va = v; break;
-                                      }
-                                    }
-
-                                    if (va.Item2 != (int)TastierType.Array) SemErr("cannot index into non - array");
+{ '['number                     (.  
+                                    int n = Convert.ToInt32(t.val);
+                                    indexes.Add(n);
+                                    arrAssign = true;
                                 .)    
   ']'     
 }
    ( ":="                        
     
-    Expr<out type>	          (.  if (((TastierKind)sym.Item2 != TastierKind.Var)) SemErr("cannot assign to non-variable");
+    Expr<out type>	            (.  if (((TastierKind)sym.Item2 != TastierKind.Var)) SemErr("cannot assign to non-variable");
                                     if (type != (TastierType)sym.Item3) SemErr("incompatible types");
 
-                                    if (sym.Item4 == 0 || type == TastierType.String || va != null) {
-                                      if (va != null) {
-                                          int arrayStartAddress = sym.Item5 + 3;
-                                          int storeAddress = arrayStartAddress + index;
-                                          program.Add(new Instruction("", "StoG " + storeAddress));
-                                          va = null;
+                                    if (sym.Item4 == 0 || type == TastierType.String || arrAssign == true) {
+
+                                      if(arrAssign == true) {
+                                        arrayDecl temp = null; int arrLen = 1;
+
+                                        foreach (arrayDecl a in arraysList) {
+                                          if((a.Item1).Equals(name)){
+                                            temp = a; break;
+                                          }
+                                        }
+
+                                        if (temp == null) SemErr("cannot index into non-array");
+                                        if (temp.Item2.Count != indexes.Count ) SemErr("cannot convert from "+indexes.Count+"D to "+temp.Item2.Count+"D");
+
+                                        for (int i = 0; i < temp.Item2.Count; i++) {
+                                          if ((temp.Item2[i] - indexes[i]) < 1) SemErr("array out of bounds exception: " + indexes[i]);
+                                          arrLen = arrLen * temp.Item2[i];
+                                        }
+
+                                        int offset = indexes[0];
+                                        for (int i = 1; i < temp.Item2.Count; i++) {
+                                          offset = offset * temp.Item2[i];
+                                          offset = offset + indexes[i];
+                                        }
+
+                                        if (offset > arrLen) SemErr("array out of bounds exception: " + offset);
+                                        program.Add(new Instruction("", "StoG " + ((sym.Item5 + 3) + offset)));
+
                                       } else {
                                         program.Add(new Instruction("", "StoG " + (sym.Item5 + 3)));
                                       }
@@ -789,6 +827,8 @@ ConstDecl
   ConstList
   }.
 
+/*------------------------------------------------------------------------*/
+
 ConstList                       (.  string name; Scope currentScope = openScopes.Peek();.)
 =  Ident<out name>
                                 (.
@@ -803,14 +843,21 @@ ConstList                       (.  string name; Scope currentScope = openScopes
 				                            nextFreeAddress = nextFreeAddress + 1;
 				                        .)
   ';'.
+/*------------------------------------------------------------------------*/
 
-VarDecl<bool external>          (.  string name; int arrLen = 0; TastierType type; Scope currentScope = openScopes.Peek(); bool arrDecl = false; .)
+VarDecl<bool external>          (.  string name; List<int> lengths = new List<int>(); TastierType type; Scope currentScope = openScopes.Peek(); 
+                                    bool arrDecl = false; int arrLen = 1;
+                                .)
 = Type<out type>
 
-  Ident<out name>  
+  Ident<out name>               (.  foreach (string var in varsList) {
+                                      if (var.Equals(name)) SemErr("duplicate variable " + name);
+                                    }
+                                .)
   {
     '['number                   (.  int n = Convert.ToInt32(t.val);
-                                    arrLen = arrLen + n;
+                                    lengths.Add(n);
+                                    arrLen = arrLen * n;
                                     arrDecl = true;
                                 .)
     ']'
@@ -819,49 +866,49 @@ VarDecl<bool external>          (.  string name; int arrLen = 0; TastierType typ
                                     if (external) {
                                       externalDeclarations.Push(new Symbol(name, (int)TastierKind.Var, (int)type, 0, 0));
                                     } else {
-                                      foreach (Variable v in varsList) {
-                                        if ((v.Item1).Equals(name)) SemErr("duplicate variable " + name);
-                                        break;
-                                      }
                                       if (arrDecl == false) {
                                         currentScope.Push(new Symbol(name, (int)TastierKind.Var, (int)type, openScopes.Count-1, nextFreeAddress));
                                         nextFreeAddress = nextFreeAddress + 1;
-                                        varsList.Add(new Variable(name, -1, -1));
+                                        varsList.Add(name);
                                       } else {
                                         currentScope.Push(new Symbol(name, (int)TastierKind.Var, (int)type, openScopes.Count-1, nextFreeAddress));
+                                        varsList.Add(name);
+                                        arraysList.Add(new arrayDecl(name, lengths));
 
                                         for (int i = 0; i < arrLen; i++) {
                                           program.Add(new Instruction("", "Const " + 0));
                                           program.Add(new Instruction("", "StoG " + (nextFreeAddress + 3)));
                                           nextFreeAddress = nextFreeAddress + 1;
                                         }
-                                        varsList.Add(new Variable(name, (int)TastierType.Array, arrLen));
-                                        arrDecl = false; arrLen = 0;
+
+                                        arrDecl = false; lengths = null;
                                       }
                                     }
                                 .)
-    { ',' Ident<out name> 
-      {
-        '['number            (.  int n = Convert.ToInt32(t.val);
-                                    arrLen = arrLen + n;
+    { ',' Ident<out name>       (.  foreach (string var in varsList) {
+                                      if (var.Equals(name)) SemErr("duplicate variable " + name);
+                                    }
+                                .)
+  {
+    '['number                   (.  int n = Convert.ToInt32(t.val);
+                                    lengths.Add(n);
+                                    arrLen = arrLen * n;
                                     arrDecl = true;
                                 .)
-        ']'
-      }             
+    ']'
+  }             
                                 (.
                                     if (external) {
                                       externalDeclarations.Push(new Symbol(name, (int)TastierKind.Var, (int)type, 0, 0));
                                     } else {
-                                      foreach (Variable v in varsList) {
-                                        if ((v.Item1).Equals(name)) SemErr("duplicate variable " + name);
-                                        break;
-                                      }
                                       if (arrDecl == false) {
                                         currentScope.Push(new Symbol(name, (int)TastierKind.Var, (int)type, openScopes.Count-1, nextFreeAddress));
                                         nextFreeAddress = nextFreeAddress + 1;
-                                        varsList.Add(new Variable(name, -1, -1));
-                                      } else { 
+                                        varsList.Add(name);
+                                      } else {
                                         currentScope.Push(new Symbol(name, (int)TastierKind.Var, (int)type, openScopes.Count-1, nextFreeAddress));
+                                        varsList.Add(name);
+                                        arraysList.Add(new arrayDecl(name, lengths));
 
                                         for (int i = 0; i < arrLen; i++) {
                                           program.Add(new Instruction("", "Const " + 0));
@@ -869,8 +916,7 @@ VarDecl<bool external>          (.  string name; int arrLen = 0; TastierType typ
                                           nextFreeAddress = nextFreeAddress + 1;
                                         }
 
-                                          varsList.Add(new Variable(name, (int)TastierType.Array, arrLen));
-                                          arrDecl = false; arrLen = 0;
+                                        arrDecl = false; lengths = null;
                                       }
                                     }
                                 .)
