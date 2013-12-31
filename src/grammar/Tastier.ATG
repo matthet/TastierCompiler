@@ -9,13 +9,14 @@ COMPILER Tastier
     Integer,
     Boolean,
     String,
-    Array
+    Record
   };
 
   enum TastierKind : int {  // kinds of symbol
     Const,
     Var,
-    Proc
+    Proc,
+    RecordVar
   };
 
 /*
@@ -114,8 +115,29 @@ Scope externalDeclarations = new Scope();
 
 Stack<Instruction> constDecls = new Stack<Instruction>(); 
 
-List<string> varsList = new List<string>();
-List<arrayDecl> arraysList = new List<arrayDecl>();
+/* 
+  using using CompoundDecl = System.Tuple<string, System.Collections.Generic.List<int>>;
+
+  arraysList is a List of array declarations; name of array and lengths / dimensions of array
+  e.g. exampleArray[2][3][3] 
+       arraysList.Add(new CompoundDecl("exampleArray", List(2,3,3)))
+*/
+
+List<CompoundDecl> arraysList = new List<CompoundDecl>();
+
+/* 
+  using using CompoundDecl = System.Tuple<string, System.Collections.Generic.List<int>>;
+
+  recordsList is a List of record declarations; name of record and memory locations of associated entities
+  e.g. BookRec = Record
+                  string title;   //memory location 5
+                  string author;  //      "         6
+                  string ISBN;    //      "         7
+                 End;
+       recordsList.Add(new CompoundDecl("BookRec", List(5,6,7))) 
+*/
+
+List<CompoundDecl> recordsList = new List<CompoundDecl>();
 
 public static string Reverse(string s) {
     char[] charArray = s.ToCharArray();
@@ -348,9 +370,9 @@ Factor<out TastierType type>    (.  Symbol sym; string name; bool arrAssign = fa
                                       if (sym.Item4 == 0 || type == TastierType.String || arrAssign == true) {
 
                                         if(arrAssign == true) {
-                                          arrayDecl temp = null; int arrLen = 1;
+                                          CompoundDecl temp = null; int arrLen = 1;
 
-                                          foreach (arrayDecl a in arraysList) {
+                                          foreach (CompoundDecl a in arraysList) {
                                             if((a.Item1).Equals(name)){
                                               temp = a; break;
                                             }
@@ -548,9 +570,9 @@ Stat                            (.  TastierType type, type1; string name; Symbol
                                     if (sym.Item4 == 0 || type == TastierType.String || arrAssign == true) {
 
                                       if(arrAssign == true) {
-                                        arrayDecl temp = null; int arrLen = 1;
+                                        CompoundDecl temp = null; int arrLen = 1;
 
-                                        foreach (arrayDecl a in arraysList) {
+                                        foreach (CompoundDecl a in arraysList) {
                                           if((a.Item1).Equals(name)){
                                             temp = a; break;
                                           }
@@ -817,6 +839,7 @@ Type<out TastierType type>
  ( "int"                        (.  type = TastierType.Integer; .)
  | "bool"                       (.  type = TastierType.Boolean; .)
  | "string"                     (.  type = TastierType.String; .)
+ | "record"                     (.  type = TastierType.Record; .)
  ).
 
 /*------------------------------------------------------------------------*/
@@ -845,23 +868,39 @@ ConstList                       (.  string name; Scope currentScope = openScopes
   ';'.
 /*------------------------------------------------------------------------*/
 
-VarDecl<bool external>          (.  string name; List<int> lengths = new List<int>(); TastierType type; Scope currentScope = openScopes.Peek(); 
-                                    bool arrDecl = false; int arrLen = 1;
+VarDecl<bool external>          (.  string name, name1; TastierType type; Scope currentScope = openScopes.Peek(); 
+                                    bool arrDecl = false; int arrLen = 1; List<int> lengths = new List<int>(); List <int> locations = new List<int>();
                                 .)
-= Type<out type>
+= ( Type<out type>
+  
+    Ident<out name>             
+    ( Ident<out name1>          (.  if (type != TastierType.Record) SemErr ("invalid declaration");
+                                    bool recordValid = false;
 
-  Ident<out name>               (.  foreach (string var in varsList) {
-                                      if (var.Equals(name)) SemErr("duplicate variable " + name);
+                                    foreach (CompoundDecl c in recordsList) {
+                                      if((c.Item1).Equals(name)){
+                                        recordValid = true;
+                                        break;
+                                      }
+                                    }
+
+                                    if (recordValid == true) {
+                                      currentScope.Push(new Symbol(name, (int)TastierKind.Var, (int)type, openScopes.Count-1, nextFreeAddress));
+                                      nextFreeAddress = nextFreeAddress + 1;
+                                    } else {
+                                      SemErr ("no record " + name1 + " declared");
                                     }
                                 .)
-  {
-    '['number                   (.  int n = Convert.ToInt32(t.val);
+      ';'
+
+    | {
+        '['number               (.  int n = Convert.ToInt32(t.val);
                                     lengths.Add(n);
                                     arrLen = arrLen * n;
                                     arrDecl = true;
                                 .)
-    ']'
-  }             
+        ']'
+      }             
                                 (.
                                     if (external) {
                                       externalDeclarations.Push(new Symbol(name, (int)TastierKind.Var, (int)type, 0, 0));
@@ -869,14 +908,41 @@ VarDecl<bool external>          (.  string name; List<int> lengths = new List<in
                                       if (arrDecl == false) {
                                         currentScope.Push(new Symbol(name, (int)TastierKind.Var, (int)type, openScopes.Count-1, nextFreeAddress));
                                         nextFreeAddress = nextFreeAddress + 1;
-                                        varsList.Add(name);
                                       } else {
                                         currentScope.Push(new Symbol(name, (int)TastierKind.Var, (int)type, openScopes.Count-1, nextFreeAddress));
-                                        varsList.Add(name);
-                                        arraysList.Add(new arrayDecl(name, lengths));
+                                        nextFreeAddress = nextFreeAddress + 1;
+                                        arraysList.Add(new CompoundDecl(name, lengths));
 
                                         for (int i = 0; i < arrLen; i++) {
-                                          program.Add(new Instruction("", "Const " + 0));
+                                          nextFreeAddress = nextFreeAddress + 1;
+                                        }
+
+                                        arrDecl = false; lengths = null;
+                                      }
+                                    }
+                                .)
+      { ',' Ident<out name>       
+        {
+        '['number               (.  int n = Convert.ToInt32(t.val);
+                                    lengths.Add(n);
+                                    arrLen = arrLen * n;
+                                    arrDecl = true;
+                                .)
+        ']'
+        }             
+                                (.
+                                    if (external) {
+                                      externalDeclarations.Push(new Symbol(name, (int)TastierKind.Var, (int)type, 0, 0));
+                                    } else {
+                                      if (arrDecl == false) {
+                                        currentScope.Push(new Symbol(name, (int)TastierKind.Var, (int)type, openScopes.Count-1, nextFreeAddress));
+                                        nextFreeAddress = nextFreeAddress + 1;
+                                      } else {
+                                        currentScope.Push(new Symbol(name, (int)TastierKind.Var, (int)type, openScopes.Count-1, nextFreeAddress));
+                                        nextFreeAddress = nextFreeAddress + 1;
+                                        arraysList.Add(new CompoundDecl(name, lengths));
+
+                                        for (int i = 0; i < arrLen; i++) {
                                           program.Add(new Instruction("", "StoG " + (nextFreeAddress + 3)));
                                           nextFreeAddress = nextFreeAddress + 1;
                                         }
@@ -885,43 +951,46 @@ VarDecl<bool external>          (.  string name; List<int> lengths = new List<in
                                       }
                                     }
                                 .)
-    { ',' Ident<out name>       (.  foreach (string var in varsList) {
-                                      if (var.Equals(name)) SemErr("duplicate variable " + name);
-                                    }
-                                .)
-  {
-    '['number                   (.  int n = Convert.ToInt32(t.val);
-                                    lengths.Add(n);
-                                    arrLen = arrLen * n;
-                                    arrDecl = true;
-                                .)
-    ']'
-  }             
-                                (.
-                                    if (external) {
-                                      externalDeclarations.Push(new Symbol(name, (int)TastierKind.Var, (int)type, 0, 0));
-                                    } else {
-                                      if (arrDecl == false) {
-                                        currentScope.Push(new Symbol(name, (int)TastierKind.Var, (int)type, openScopes.Count-1, nextFreeAddress));
-                                        nextFreeAddress = nextFreeAddress + 1;
-                                        varsList.Add(name);
-                                      } else {
-                                        currentScope.Push(new Symbol(name, (int)TastierKind.Var, (int)type, openScopes.Count-1, nextFreeAddress));
-                                        varsList.Add(name);
-                                        arraysList.Add(new arrayDecl(name, lengths));
+      } ';'
+    )
 
-                                        for (int i = 0; i < arrLen; i++) {
-                                          program.Add(new Instruction("", "Const " + 0));
-                                          program.Add(new Instruction("", "StoG " + (nextFreeAddress + 3)));
-                                          nextFreeAddress = nextFreeAddress + 1;
-                                        }
-
-                                        arrDecl = false; lengths = null;
-                                      }
-                                    }
+  | Ident<out name>
+    "record" '{'                (.  currentScope.Push(new Symbol(name, (int)TastierKind.RecordVar, (int)TastierType.Record, openScopes.Count-1, nextFreeAddress));
+                                    nextFreeAddress = nextFreeAddress + 1;                                    
                                 .)
+    Type<out type>
+    Ident<out name1>            (.  
+                                    currentScope.Push(new Symbol(name1, (int)TastierKind.RecordVar, (int)type, openScopes.Count-1, nextFreeAddress));
+                                    locations.Add(nextFreeAddress);
+                                    nextFreeAddress = nextFreeAddress + 1;
+                                .)
+      { ',' Ident<out name1>    (.  
+                                    currentScope.Push(new Symbol(name1, (int)TastierKind.RecordVar, (int)type, openScopes.Count-1, nextFreeAddress));
+                                    locations.Add(nextFreeAddress);
+                                    nextFreeAddress = nextFreeAddress + 1;
+                                .)
+      }
+      ';'
+
+    { Type<out type>
+      Ident<out name1>          (.  
+                                    currentScope.Push(new Symbol(name1, (int)TastierKind.RecordVar, (int)type, openScopes.Count-1, nextFreeAddress));
+                                    locations.Add(nextFreeAddress);
+                                    nextFreeAddress = nextFreeAddress + 1;
+                                .)
+        { ',' Ident<out name1>  (.  
+                                    currentScope.Push(new Symbol(name1, (int)TastierKind.RecordVar, (int)type, openScopes.Count-1, nextFreeAddress));
+                                    locations.Add(nextFreeAddress);
+                                    nextFreeAddress = nextFreeAddress + 1;
+                                .)
+        }
+        ';'
     }
-  ';'.
+    '}' ';'
+                                (.  recordsList.Add(new CompoundDecl(name, locations));
+                                    locations = null;
+                                .)
+  ).
 
 ExternDecl                      (.  string name; bool external = true; Scope currentScope = openScopes.Peek(); int count = currentScope.Count; .)
 = "external"
