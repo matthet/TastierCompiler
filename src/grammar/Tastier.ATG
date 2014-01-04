@@ -111,12 +111,11 @@ COMPILER Tastier
 */
 
 Stack<Scope> openScopes = new Stack<Scope>();
-Scope externalDeclarations = new Scope();
 
 Stack<Instruction> constDecls = new Stack<Instruction>(); 
 
 /* 
-  using using ArrayDecl = System.Tuple<string, System.Collections.Generic.List<int>>;
+  using ArrayDecl = System.Tuple<string, System.Collections.Generic.List<int>>;
 
   arraysList is a List of array declarations; name of array and lengths / dimensions of array
   e.g. exampleArray[2][3][3] 
@@ -126,14 +125,15 @@ Stack<Instruction> constDecls = new Stack<Instruction>();
 List<ArrayDecl> arraysList = new List<ArrayDecl>();
 
 /* 
-  using RecDecl = System.Tuple<string, System.Tuple<string,int,int>>;
+  using RecordDecl = System.Tuple<string, System.Tuple<string,int,int>>;
 
-  recDeclsList is a List of record declarations; name of record and name & type of associated entities
+  recDeclsList is a List of record declarations; name of record and details of record members
   e.g. record aRecord {
               int a;
               string b;
+              int c[3][2];
               };
-       recDeclsList.Add(new RecDecl("BookRec", List(entities))) 
+       recDeclsList.Add(new RecDecl("BookRec", List(members))) 
 */
 
 List<RecordDecl> recDeclsList = new List<RecordDecl>();
@@ -141,7 +141,7 @@ List<RecordDecl> recDeclsList = new List<RecordDecl>();
 /* 
   using RecordInst = System.Tuple<string, System.Collections.Generic.List<System.Tuple<string,int>>>;
 
-  recInstsList is a List of record instances; name of record instance and memory locations of entities associated with that record instance
+  recInstsList is a List of record instances; name of record instance and name & memory locations of record instance members
   e.g. record aRecord myRec;
        recInstsList.Add(new ArrayDecl("myRec", List(member name, member location)))
 */
@@ -412,7 +412,7 @@ Factor<out TastierType type>    (.  Symbol sym; string name, name1 = ""; bool ar
                                         if(arrAssign == true) {
                                           ArrayDecl temp = null; int arrLen = 1; string arrayName = "";
 
-                                          if (recordVariable == true) {
+                                          if (recordVariable == true) { 
                                             arrayName = name1;
                                           } else {
                                             arrayName = name;
@@ -519,7 +519,7 @@ MulOp<out Instruction inst>
 
 /*------------------------------------------------------------------------*/
 
-ProcDecl                        (.  string name; string label; Scope currentScope = openScopes.Peek(); int enterInstLocation = 0; bool external = false; .)
+ProcDecl                        (.  string name; string label; Scope currentScope = openScopes.Peek(); int enterInstLocation = 0; .)
 = "void"
   Ident<out name>               (.
                                     currentScope.Push(new Symbol(name, (int)TastierKind.Proc, (int)TastierType.Undefined, openScopes.Count, -1));
@@ -551,7 +551,7 @@ ProcDecl                        (.  string name; string label; Scope currentScop
                         				    }	 	
                                 .)
 
-  { VarDecl<external> | Stat |  (.
+  { VarDecl | Stat |  (.
                                     openLabels.Push(generateLabel());
                                     program.Add(new Instruction("", "Jmp " + openLabels.Peek()));
                                     /*
@@ -602,7 +602,7 @@ SimExpr<out TastierType type>   (.  TastierType type1; Instruction inst; .)
 
 /*------------------------------------------------------------------------*/
 
-Stat                            (.  TastierType type, type1; string name, name1 = ""; Symbol sym; bool external = false; bool isExternal = false; 
+Stat                            (.  TastierType type, type1; string name, name1 = ""; Symbol sym; 
                                     bool arrAssign = false, recordVariable = false; 
                                     List<int> indexes = new List<int>(); int memberAddress = -1;
                                 .)
@@ -652,11 +652,11 @@ Stat                            (.  TastierType type, type1; string name, name1 
                                       if(arrAssign == true) {
                                         ArrayDecl temp = null; int arrLen = 1; string arrayName = "";
 
-                                        if (recordVariable == true) {
-                                          arrayName = name1;
-                                        } else {
-                                          arrayName = name;
-                                        }
+                                        if (recordVariable == true) { 
+                                            arrayName = name1;
+                                          } else {
+                                            arrayName = name;
+                                          }
 
                                         foreach (ArrayDecl a in arraysList) {
                                           if((a.Item1).Equals(arrayName)){
@@ -816,13 +816,7 @@ Stat                            (.  TastierType type, type1; string name, name1 
 | "read"
   Ident<out name> ';'           (.
                                     sym = lookup(openScopes, name);
-                                    if (sym == null) {
-                                      sym = _lookup(externalDeclarations, name);
-                                      isExternal = true;
-                                    }
-                                    if (sym == null) {
-                                      SemErr("reference to undefined variable " + name);
-                                    }
+                                    if (sym == null) SemErr("reference to undefined variable " + name);
 
                                     if (sym.Item2 != (int)TastierKind.Var) {
                                       SemErr("variable type expected but " + sym.Item1 + " has kind " + (TastierType)sym.Item2);
@@ -834,14 +828,8 @@ Stat                            (.  TastierType type, type1; string name, name1 
                                     program.Add(new Instruction("", "Read"));
 
                                     if (sym.Item4 == 0) {
-                                      if (isExternal) {
-                                        program.Add(new Instruction("", "StoG " + sym.Item1));
-                                        // if the symbol is external, we also store it by name. The linker will resolve the name to an address.
-                                      } else {
-                                        program.Add(new Instruction("", "StoG " + (sym.Item5+3)));
-                                      }
-                                    }
-                                    else {
+                                      program.Add(new Instruction("", "StoG " + (sym.Item5+3)));
+                                    } else {
                                       int lexicalLevelDifference = Math.Abs(openScopes.Count - sym.Item4)-1;
                                       program.Add(new Instruction("", "Sto " + lexicalLevelDifference + " " + sym.Item5));
                                     }
@@ -872,24 +860,24 @@ Stat                            (.  TastierType type, type1; string name, name1 
 				                        .)
    } ';'
 
-| '{' { Stat | VarDecl<external> } '}' .
+| '{' { Stat | VarDecl } '}' .
 
 /*------------------------------------------------------------------------*/
 
-Tastier                         (.  string name; bool external = false; .)
+Tastier                         (.  string name; .)
 = "program"
   Ident<out name>               (.
                                     openScopes.Push(new Scope());
                                 .)
   '{'
   [ ConstDecl ]
-  { VarDecl<external> | ProcDecl | ExternDecl }
+  { VarDecl | ProcDecl }
   '}'                           (.
                                     if (openScopes.Peek().Count == 0) {
                                       Warn("Warning: Program " + name + " is empty ");
                                     }
 
-                                    header.Add(new Instruction("", ".names " + (externalDeclarations.Count + openScopes.Peek().Count)));
+                                    header.Add(new Instruction("", ".names " + openScopes.Peek().Count));
                                     foreach (Symbol s in openScopes.Peek()) {
 					                          if (s.Item2 == (int)TastierKind.Const) {
 					                           header.Add(new Instruction("", ".const " + ((int)s.Item3) + " " + s.Item1));
@@ -901,15 +889,7 @@ Tastier                         (.  string name; bool external = false; .)
                                         SemErr("global item " + s.Item1 + " has no defined type");
                                       }
                                     }
-                                    foreach (Symbol s in externalDeclarations) {
-                                      if (s.Item2 == (int)TastierKind.Var) {
-                                        header.Add(new Instruction("", ".external var " + ((int)s.Item3) + " " + s.Item1));
-                                      } else if (s.Item2 == (int)TastierKind.Proc) {
-                                        header.Add(new Instruction("", ".external proc " + s.Item1));
-                                      } else {
-                                        SemErr("external item " + s.Item1 + " has no defined type");
-                                      }
-                                    }
+                                    
                                     header.AddRange(program);
                                     openScopes.Pop();
                                 .).
@@ -1074,7 +1054,7 @@ RecordDecl                      (.  string name, name1; TastierType type; Scope 
 
 /*------------------------------------------------------------------------*/
 
-VarDecl<bool external>          (.  string name; TastierType type; Scope currentScope = openScopes.Peek(); int arrLen = 1;
+VarDecl                         (.  string name; TastierType type; Scope currentScope = openScopes.Peek(); int arrLen = 1;
                                     bool arrDecl = false; List<int> lengths = new List<int>(); 
                                 .)
 = Type<out type>
@@ -1088,24 +1068,20 @@ VarDecl<bool external>          (.  string name; TastierType type; Scope current
     ']'
   }             
                                 (.
-                                    if (external) {
-                                      externalDeclarations.Push(new Symbol(name, (int)TastierKind.Var, (int)type, 0, 0));
+                                    if (arrDecl == false) {
+                                      currentScope.Push(new Symbol(name, (int)TastierKind.Var, (int)type, openScopes.Count-1, nextFreeAddress));
+                                      nextFreeAddress = nextFreeAddress + 1;
                                     } else {
-                                      if (arrDecl == false) {
-                                        currentScope.Push(new Symbol(name, (int)TastierKind.Var, (int)type, openScopes.Count-1, nextFreeAddress));
+                                      currentScope.Push(new Symbol(name, (int)TastierKind.Var, (int)type, openScopes.Count-1, nextFreeAddress));
+                                      arraysList.Add(new ArrayDecl(name, lengths));
+
+                                      for (int i = 0; i < arrLen; i++) {
+                                        program.Add(new Instruction("", "Const " + 0));
+                                        program.Add(new Instruction("", "StoG " + (nextFreeAddress + 3)));
                                         nextFreeAddress = nextFreeAddress + 1;
-                                      } else {
-                                        currentScope.Push(new Symbol(name, (int)TastierKind.Var, (int)type, openScopes.Count-1, nextFreeAddress));
-                                        arraysList.Add(new ArrayDecl(name, lengths));
-
-                                        for (int i = 0; i < arrLen; i++) {
-                                          program.Add(new Instruction("", "Const " + 0));
-                                          program.Add(new Instruction("", "StoG " + (nextFreeAddress + 3)));
-                                          nextFreeAddress = nextFreeAddress + 1;
-                                        }
-
-                                        arrDecl = false; lengths = new List<int>(); arrLen = 1;
                                       }
+
+                                      arrDecl = false; lengths = new List<int>(); arrLen = 1;
                                     }
                                 .)
       { ',' Ident<out name>       
@@ -1118,35 +1094,24 @@ VarDecl<bool external>          (.  string name; TastierType type; Scope current
         ']'
         }             
                                 (.
-                                    if (external) {
-                                      externalDeclarations.Push(new Symbol(name, (int)TastierKind.Var, (int)type, 0, 0));
+                                    if (arrDecl == false) {
+                                      currentScope.Push(new Symbol(name, (int)TastierKind.Var, (int)type, openScopes.Count-1, nextFreeAddress));
+                                      nextFreeAddress = nextFreeAddress + 1;
                                     } else {
-                                      if (arrDecl == false) {
-                                        currentScope.Push(new Symbol(name, (int)TastierKind.Var, (int)type, openScopes.Count-1, nextFreeAddress));
-                                        nextFreeAddress = nextFreeAddress + 1;
-                                      } else {
-                                        currentScope.Push(new Symbol(name, (int)TastierKind.Var, (int)type, openScopes.Count-1, nextFreeAddress));
-                                        arraysList.Add(new ArrayDecl(name, lengths));
+                                      currentScope.Push(new Symbol(name, (int)TastierKind.Var, (int)type, openScopes.Count-1, nextFreeAddress));
+                                      arraysList.Add(new ArrayDecl(name, lengths));
 
-                                        for (int i = 0; i < arrLen; i++) {
-                                          program.Add(new Instruction("", "Const " + 0));
-                                          program.Add(new Instruction("", "StoG " + (nextFreeAddress+3)));
-                                          nextFreeAddress = nextFreeAddress + 1;
-                                        }
+                                      for (int i = 0; i < arrLen; i++) {
+                                        program.Add(new Instruction("", "Const " + 0));
+                                        program.Add(new Instruction("", "StoG " + (nextFreeAddress+3)));
+                                        nextFreeAddress = nextFreeAddress + 1;
+                                      }
 
                                         arrDecl = false; lengths = new List<int>(); arrLen = 1;
-                                      }
                                     }
                                 .)
       } ';' 
   | RecordDecl .
-
-ExternDecl                      (.  string name; bool external = true; Scope currentScope = openScopes.Peek(); int count = currentScope.Count; .)
-= "external"
-  ( VarDecl<external>
-  | "procedure" Ident<out name> ';'
-                                (.  externalDeclarations.Push(new Symbol(name, (int)TastierKind.Proc, (int)TastierType.Undefined, 1, -1)); .)
-  ) .
 
 END Tastier.
 
