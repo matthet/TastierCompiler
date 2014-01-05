@@ -10,7 +10,6 @@ COMPILER Tastier
     Boolean,
     String,
     Character,
-    Record
   };
 
   enum TastierKind : int {  // kinds of symbol
@@ -138,16 +137,6 @@ List<ArrayDecl> arraysList = new List<ArrayDecl>();
 */
 
 List<RecordDecl> recDeclsList = new List<RecordDecl>();
-
-/* 
-  using RecordInst = System.Tuple<string, System.Collections.Generic.List<System.Tuple<string,int>>>;
-
-  recInstsList is a List of record instances; name of record instance and name & memory locations of record instance members
-  e.g. record aRecord myRec;
-       recInstsList.Add(new ArrayDecl("myRec", List(member name, member location)))
-*/
-
-List<RecordInst> recInstsList = new List<RecordInst>();
 
 public static string Reverse(string s) {
     char[] charArray = s.ToCharArray();
@@ -293,12 +282,13 @@ CHARACTERS
   cr  = '\r'.
   lf  = '\n'.
   tab = '\t'.
+  dot = '.'.
   space = '\u0020'.
   chars = ANY - cr - lf - '\''.
   stringchars = ANY - cr - lf - '\"'.
 
 TOKENS
-  ident  = letter {letter | digit}.
+  ident  = letter {letter | dot | digit}.
   number = digit {digit}.
   string = '"' {stringchars} '"'.
   char = '\'' [chars]'\''.
@@ -355,35 +345,12 @@ Expr<out TastierType type>      (.  TastierType type1; Instruction inst; .)
 
 /*------------------------------------------------------------------------*/
 
-Factor<out TastierType type>    (.  Symbol sym; string name, name1 = ""; bool arrAssign = false, recordVariable = false; 
-                                    List<int> indexes = new List<int>(); int memberAddress = -1; .)
+Factor<out TastierType type>    (.  Symbol sym; string name; bool arrAssign = false; List<int> indexes = new List<int>();.)
 =                               (.  type = TastierType.Undefined; .)
   ( Ident<out name>             (.
                                     sym = lookup(openScopes, name);
                                     if (sym == null) SemErr("reference to undefined variable " + name);
                                 .)
-    [ '.' Ident<out name1>      (.  List<RecordInstMember> recInstVars = new List<RecordInstMember>(); 
-                                    bool validRecInst = false;
-
-                                    foreach (RecordInst r in recInstsList) {
-                                      if ((r.Item1).Equals(name)) {
-                                        recInstVars = r.Item2;
-                                        validRecInst = true;
-                                        break;
-                                      }
-                                    }
-                                    if (validRecInst == false) SemErr("Non resolved record instance " + name);
-
-                                    foreach (RecordInstMember r in recInstVars) {
-                                      if ((r.Item1).Equals(name1)) {
-                                        memberAddress = r.Item2;
-                                        break;
-                                      }
-                                    }
-                                    if (memberAddress == -1) SemErr("Non resolved record member " + name1);
-                                    recordVariable = true;
-                                .)
-  ]
 
   { '['number                   (.  
                                     int n = Convert.ToInt32(t.val);
@@ -393,24 +360,17 @@ Factor<out TastierType type>    (.  Symbol sym; string name, name1 = ""; bool ar
     ']'     
   }    
                                 (.  
-                                    if (recordVariable == true) {
-                                      Symbol tempSym = lookup(openScopes, name1);
-                                      type = (TastierType)tempSym.Item3;
-                                    } else {
-                                      type = (TastierType)sym.Item3;
-                                    }
+                                    type = (TastierType)sym.Item3;
 
-                                    if ((TastierKind)sym.Item2 == TastierKind.Var || (TastierKind)sym.Item2 == TastierKind.Const) {
-                                      if (sym.Item4 == 0 || type == TastierType.String || arrAssign == true || recordVariable == true) {
+                                    if ((TastierKind)sym.Item2 == TastierKind.Var || (TastierKind)sym.Item2 == TastierKind.Const || 
+                                        (TastierKind)sym.Item2 == TastierKind.RecordVar) {
+                                      if (sym.Item4 == 0 || type == TastierType.String || arrAssign == true || sym.Item2 == (int)TastierKind.RecordVar) {
 
                                         if(arrAssign == true) {
-                                          ArrayDecl temp = null; int arrLen = 1; string arrayName = "";
-
-                                          if (recordVariable == true) { arrayName = name1;
-                                          } else { arrayName = name; }
+                                          ArrayDecl temp = null; int arrLen = 1;
 
                                           foreach (ArrayDecl a in arraysList) {
-                                            if((a.Item1).Equals(arrayName)){
+                                            if((a.Item1).Equals(name)){
                                               temp = a; break;
                                             }
                                           }
@@ -431,19 +391,12 @@ Factor<out TastierType type>    (.  Symbol sym; string name, name1 = ""; bool ar
 
                                           if (offset > arrLen) SemErr("array out of bounds exception: " + offset);
 
-                                          if (recordVariable == true) {
-                                            program.Add(new Instruction("", "LoadG " + ((memberAddress + 3) + offset)));
-                                          } else {
-                                            program.Add(new Instruction("", "LoadG " + ((sym.Item5 + 3) + offset)));
-                                          }
+                                          program.Add(new Instruction("", "LoadG " + ((sym.Item5 + 3) + offset)));
 
                                         } else {
-                                          if (recordVariable == true) {
-                                            program.Add(new Instruction("", "LoadG " + (memberAddress+3)));
-                                          } else {
-                                            program.Add(new Instruction("", "LoadG " + (sym.Item5+3)));
-                                          }
+                                          program.Add(new Instruction("", "LoadG " + (sym.Item5+3)));
                                         }
+
                                       } else {
                                         int lexicalLevelDifference = Math.Abs(openScopes.Count - sym.Item4)-1;
                                         program.Add(new Instruction("", "Load " + lexicalLevelDifference + " " + sym.Item5));
@@ -599,37 +552,14 @@ SimExpr<out TastierType type>   (.  TastierType type1; Instruction inst; .)
 
 /*------------------------------------------------------------------------*/
 
-Stat                            (.  TastierType type, type1; string name, name1 = ""; Symbol sym; 
-                                    bool arrAssign = false, recordVariable = false; 
-                                    List<int> indexes = new List<int>(); int memberAddress = -1;
+Stat                            (.  TastierType type, type1; string name; Symbol sym; 
+                                    List<int> indexes = new List<int>(); bool arrAssign = false;
                                 .)
 
 = Ident<out name>               (.
                                     sym = lookup(openScopes, name);
                                     if (sym == null) SemErr("reference to undefined constant or variable " + name); 
                                 .)
-  [ '.' Ident<out name1>        (.  List<RecordInstMember> recInstVars = new List<RecordInstMember>(); 
-                                    bool validRecInst = false;
-
-                                    foreach (RecordInst r in recInstsList) {
-                                      if ((r.Item1).Equals(name)) {
-                                        recInstVars = r.Item2;
-                                        validRecInst = true;
-                                        break;
-                                      }
-                                    }
-                                    if (validRecInst == false) SemErr("Non resolved record instance " + name);
-
-                                    foreach (RecordInstMember r in recInstVars) {
-                                      if ((r.Item1).Equals(name1)) {
-                                        memberAddress = r.Item2;
-                                        break;
-                                      }
-                                    }
-                                    if (memberAddress == -1) SemErr("Non resolved record member " + name1);
-                                    recordVariable = true;
-                                .)
-  ]
 
   { '['number                   (.  
                                     int n = Convert.ToInt32(t.val);
@@ -641,24 +571,16 @@ Stat                            (.  TastierType type, type1; string name, name1 
 
    ( ":="                        
     
-    Expr<out type>	            (.  if (((TastierKind)sym.Item2 != TastierKind.Var)) SemErr("cannot assign to non-variable");
+    Expr<out type>	            (.  if ((((TastierKind)sym.Item2 != TastierKind.Var) && ((TastierKind)sym.Item2 != TastierKind.RecordVar))) 
+                                      SemErr("cannot assign to non-variable");
+                                    if ((type != (TastierType)sym.Item3)) SemErr("incompatible types");
 
-                                    if (recordVariable == true) {
-                                      Symbol tempSym = lookup(openScopes, name1);
-                                      if ((type != (TastierType)tempSym.Item3)) SemErr("incompatible types"); 
-                                    } else {
-                                      if ((type != (TastierType)sym.Item3)) SemErr("incompatible types");
-                                    }
-
-                                    if (sym.Item4 == 0 || type == TastierType.String || arrAssign == true || recordVariable == true) {
+                                    if (sym.Item4 == 0 || type == TastierType.String || arrAssign == true || sym.Item2 == (int)TastierKind.RecordVar) {
                                       if(arrAssign == true) {
-                                        ArrayDecl temp = null; int arrLen = 1; string arrayName = "";
-
-                                        if (recordVariable == true) { arrayName = name1;
-                                        } else { arrayName = name; }
+                                        ArrayDecl temp = null; int arrLen = 1;
 
                                         foreach (ArrayDecl a in arraysList) {
-                                          if((a.Item1).Equals(arrayName)){
+                                          if((a.Item1).Equals(name)){
                                             temp = a; break;
                                           }
                                         }
@@ -679,18 +601,10 @@ Stat                            (.  TastierType type, type1; string name, name1 
 
                                         if (offset > arrLen) SemErr("array out of bounds exception: " + offset);
 
-                                        if (recordVariable == true) {
-                                          program.Add(new Instruction("", "StoG " + ((memberAddress + 3) + offset)));
-                                        } else {
-                                          program.Add(new Instruction("", "StoG " + ((sym.Item5 + 3) + offset)));
-                                        }
+                                        program.Add(new Instruction("", "StoG " + ((sym.Item5 + 3) + offset)));
 
                                       } else {
-                                        if (recordVariable == true) {
-                                          program.Add(new Instruction("", "StoG " + (memberAddress + 3)));
-                                        } else {
-                                          program.Add(new Instruction("", "StoG " + (sym.Item5 + 3)));
-                                        }
+                                        program.Add(new Instruction("", "StoG " + (sym.Item5 + 3)));
                                       }
 
                                     } else {
@@ -944,7 +858,6 @@ ConstList                       (.  string name; Scope currentScope = openScopes
 RecordDecl                      (.  string name, name1; TastierType type; Scope currentScope = openScopes.Peek(); 
                                     int arrDecl = -1, arrLen = 1; List<int> lengths = new List<int>(); 
                                     List<RecordDeclMember> recDeclVars = new List<RecordDeclMember>();
-                                    List<RecordInstMember> recInstVars = new List<RecordInstMember>();
                                 .)
 = "record"                      
   Ident<out name>
@@ -1023,28 +936,27 @@ RecordDecl                      (.  string name, name1; TastierType type; Scope 
                                     }
 
                                     if (recordValid == true) {
-                                      currentScope.Push(new Symbol(name1, (int)TastierKind.Var, (int)TastierType.Record, openScopes.Count-1, nextFreeAddress));
-                                      nextFreeAddress = nextFreeAddress + 1;
-
                                       foreach (RecordDeclMember r in recDeclVars) {
-                                        currentScope.Push(new Symbol(r.Item1, (int)TastierKind.RecordVar, r.Item2, openScopes.Count-1, nextFreeAddress));
-                                        int memberAddress = nextFreeAddress;
+                                        currentScope.Push(new Symbol((name1 + '.' + r.Item1), (int)TastierKind.RecordVar, r.Item2, openScopes.Count-1, nextFreeAddress));
 
-                                        if (r.Item3 != -1) {
+                                        if (r.Item3 != -1) {  // array 
                                           for (int i = 0; i < r.Item3; i++) {
                                             program.Add(new Instruction("", "Const " + 0));
                                             program.Add(new Instruction("", "StoG " + (nextFreeAddress+3)));
                                             nextFreeAddress = nextFreeAddress + 1;
                                           }
+
+                                          List<int> templengths = new List<int>();
+                                          foreach (ArrayDecl a in arraysList) {
+                                            if((a.Item1).Equals(r.Item1)){
+                                              templengths = a.Item2; break;
+                                            }
+                                          }
+                                          arraysList.Add(new ArrayDecl((name1 + '.' + r.Item1), templengths));
                                         } else {
                                           nextFreeAddress = nextFreeAddress + 1;
                                         }
-
-                                        recInstVars.Add(new RecordInstMember(r.Item1, memberAddress));
                                       }
-
-                                      recInstsList.Add(new RecordInst(name1, recInstVars));
-
                                     } else {
                                       SemErr ("cannot instantiate " + name1 + " on non resolved record variable " + name);
                                     }
