@@ -2,16 +2,14 @@ program Test {
 
  void Main() {
 
-  int i, j;
-  j := 10;
+  int i;
+  string j;
 
-  for(i := 0; i < 10; i := i + 1){
-    write i;  //0, 1, 2, 3...
+  j := "hey";
+
+  for(i := 0; i != 3; i := i + 1){
+    write j;
   }
-
-  //i := 10, j := 10, expected output for j "11"
-  j := j >= i ? j + 1 : j - 1;
-  write j;
 
  }
 }

@@ -36,8 +36,6 @@ using StackAddress = System.Tuple<int, int>;
 using ArrayDecl = System.Tuple<string, System.Collections.Generic.List<int>>;
 using RecordDecl = System.Tuple<string, System.Collections.Generic.List<System.Tuple<string,int,int>>>;
 using RecordDeclMember = System.Tuple<string,int,int>;
-using RecordInst = System.Tuple<string, System.Collections.Generic.List<System.Tuple<string,int>>>;
-using RecordInstMember = System.Tuple<string,int>;
 
 -->namespace
 
