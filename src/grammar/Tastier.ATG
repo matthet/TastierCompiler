@@ -9,6 +9,7 @@ COMPILER Tastier
     Integer,
     Boolean,
     String,
+    Character,
     Record
   };
 
@@ -256,15 +257,6 @@ string generateLabel() {
   put the label in, and pop it off the stack.
 */
 
-Symbol _lookup(Scope scope, string name) {
-  foreach (Symbol s in scope) {
-      if (s.Item1 == name) {
-        return s;
-      }
-  }
-  return null;
-}
-
 Symbol lookup(Stack<Scope> scopes, string name) {
   int stackFrameOffset = 0;
   int variableOffset = 0;
@@ -302,12 +294,14 @@ CHARACTERS
   lf  = '\n'.
   tab = '\t'.
   space = '\u0020'.
-  stringChars = ANY - cr - lf - '\"'.
+  chars = ANY - cr - lf - '\''.
+  stringchars = ANY - cr - lf - '\"'.
 
 TOKENS
   ident  = letter {letter | digit}.
   number = digit {digit}.
-  string = '"' {stringChars} '"'.
+  string = '"' {stringchars} '"'.
+  char = '\'' [chars]'\''.
 
 COMMENTS FROM "/*" TO "*/" NESTED
 COMMENTS FROM "//" TO lf
@@ -412,11 +406,8 @@ Factor<out TastierType type>    (.  Symbol sym; string name, name1 = ""; bool ar
                                         if(arrAssign == true) {
                                           ArrayDecl temp = null; int arrLen = 1; string arrayName = "";
 
-                                          if (recordVariable == true) { 
-                                            arrayName = name1;
-                                          } else {
-                                            arrayName = name;
-                                          }
+                                          if (recordVariable == true) { arrayName = name1;
+                                          } else { arrayName = name; }
 
                                           foreach (ArrayDecl a in arraysList) {
                                             if((a.Item1).Equals(arrayName)){
@@ -443,7 +434,7 @@ Factor<out TastierType type>    (.  Symbol sym; string name, name1 = ""; bool ar
                                           if (recordVariable == true) {
                                             program.Add(new Instruction("", "LoadG " + ((memberAddress + 3) + offset)));
                                           } else {
-                                          program.Add(new Instruction("", "LoadG " + ((sym.Item5 + 3) + offset)));
+                                            program.Add(new Instruction("", "LoadG " + ((sym.Item5 + 3) + offset)));
                                           }
 
                                         } else {
@@ -490,8 +481,14 @@ Factor<out TastierType type>    (.  Symbol sym; string name, name1 = ""; bool ar
 				                            type = TastierType.String;
                                     program.Add(new Instruction("", "Const " + (stringStartAddress + 3)));
                                 .)
+
+  | char                        (.  foreach(char c in t.val) {
+                                      if(c != '\'') program.Add(new Instruction("", "Const " + Convert.ToInt32(c)));
+                                    }
+                                    type = TastierType.Character;
+                                .)
   | '-'
-    Factor<out type>            (.
+    Factor<out type>            (.  
                                     if (type != TastierType.Integer) {
                                       SemErr("integer type expected");
                                       type = TastierType.Integer;
@@ -645,18 +642,20 @@ Stat                            (.  TastierType type, type1; string name, name1 
    ( ":="                        
     
     Expr<out type>	            (.  if (((TastierKind)sym.Item2 != TastierKind.Var)) SemErr("cannot assign to non-variable");
-                                    if ((type != (TastierType)sym.Item3) && recordVariable == false) SemErr("incompatible types");
+
+                                    if (recordVariable == true) {
+                                      Symbol tempSym = lookup(openScopes, name1);
+                                      if ((type != (TastierType)tempSym.Item3)) SemErr("incompatible types"); 
+                                    } else {
+                                      if ((type != (TastierType)sym.Item3)) SemErr("incompatible types");
+                                    }
 
                                     if (sym.Item4 == 0 || type == TastierType.String || arrAssign == true || recordVariable == true) {
-
                                       if(arrAssign == true) {
                                         ArrayDecl temp = null; int arrLen = 1; string arrayName = "";
 
-                                        if (recordVariable == true) { 
-                                            arrayName = name1;
-                                          } else {
-                                            arrayName = name;
-                                          }
+                                        if (recordVariable == true) { arrayName = name1;
+                                        } else { arrayName = name; }
 
                                         foreach (ArrayDecl a in arraysList) {
                                           if((a.Item1).Equals(arrayName)){
@@ -788,9 +787,7 @@ Stat                            (.  TastierType type, type1; string name, name1 
 				                        .)	   	
    ')'				
    Stat				                  (.  
-				                            foreach(Instruction i in actions){
-					                             program.Add(i);
-				                            }
+				                            foreach(Instruction i in actions) program.Add(i);
 					
                                     program.Add(new Instruction("", "Jmp " + loopStartLabel));
                                     program.Add(new Instruction(openLabels.Pop(), "Nop")); // put the loop end label here
@@ -837,26 +834,30 @@ Stat                            (.  TastierType type, type1; string name, name1 
 
 | "write"
    Expr<out type>               (.
-                        				    if (type != TastierType.Integer && type != TastierType.String) {
-                        				      SemErr("integer or string type expected");
-                        				    } else {
-                        				        if (type == TastierType.Integer){ 
-                        				           program.Add(new Instruction("", "Write"));
-                        			          } else {
-                        				           program.Add(new Instruction("", "WriteStr"));  
-                        				        }
-                        				    }
+                        				  if (type == TastierType.Integer) {
+                                    program.Add(new Instruction("", "WriteInt"));
+                                  } else if (type == TastierType.String) {
+                                    program.Add(new Instruction("", "WriteStr"));  
+                        				  } else if (type == TastierType.Boolean) {
+                                    program.Add(new Instruction("", "WriteBool"));
+                                  } else if (type == TastierType.Character) {
+                                    program.Add(new Instruction("", "WriteChar"));
+                                  } else {
+                                    SemErr("integer / string / boolean / character type expected");
+                                  }
                                 .)
    { ',' Expr<out type>		      (.
-				                            if (type != TastierType.Integer && type != TastierType.String) {
-                                      SemErr("integer or string type expected");
-                                    } else {
-                                        if (type == TastierType.Integer){
-                                           program.Add(new Instruction("", "Write"));
-                                        } else {
-                                           program.Add(new Instruction("", "WriteStr"));
-                                        }
-                                    }
+				                          if (type == TastierType.Integer) {
+                                    program.Add(new Instruction("", "WriteInt"));
+                                  } else if (type == TastierType.String) {
+                                    program.Add(new Instruction("", "WriteStr"));  
+                                  } else if (type == TastierType.Boolean) {
+                                    program.Add(new Instruction("", "WriteBool"));
+                                  } else if (type == TastierType.Character) {
+                                    program.Add(new Instruction("", "WriteChar"));
+                                  } else {
+                                    SemErr("integer / string / boolean / character type expected");
+                                  }
 				                        .)
    } ';'
 
@@ -900,8 +901,7 @@ Term<out TastierType type>      (.  TastierType type1; Instruction inst; .)
 = Factor<out type>
   { MulOp<out inst>
     Factor<out type1>           (.
-                                    if (type != TastierType.Integer ||
-                                        type1 != TastierType.Integer) {
+                                    if (type != TastierType.Integer || type1 != TastierType.Integer) {
                                       SemErr("integer type expected");
                                     }
                                     program.Add(inst);
@@ -915,6 +915,7 @@ Type<out TastierType type>
  ( "int"                        (.  type = TastierType.Integer; .)
  | "bool"                       (.  type = TastierType.Boolean; .)
  | "string"                     (.  type = TastierType.String; .)
+ | "char"                       (.  type = TastierType.Character; .)
  ).
 
 /*------------------------------------------------------------------------*/
@@ -1040,7 +1041,6 @@ RecordDecl                      (.  string name, name1; TastierType type; Scope 
                                         }
 
                                         recInstVars.Add(new RecordInstMember(r.Item1, memberAddress));
-                                        Console.WriteLine(r.Item1 + " " + memberAddress);
                                       }
 
                                       recInstsList.Add(new RecordInst(name1, recInstVars));
