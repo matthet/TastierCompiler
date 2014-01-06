@@ -16,6 +16,7 @@ COMPILER Tastier
     Const,
     Var,
     Proc,
+    ArrayVar
   };
 
 /*
@@ -136,6 +137,8 @@ List<ArrayDecl> arraysList = new List<ArrayDecl>();
 */
 
 List<RecordDecl> recDeclsList = new List<RecordDecl>();
+
+List<ParameterisedProc> paramProcsList = new List<ParameterisedProc>();
 
 public static string Reverse(string s) {
     char[] charArray = s.ToCharArray();
@@ -344,7 +347,7 @@ Expr<out TastierType type>      (.  TastierType type1; Instruction inst; .)
 
 /*------------------------------------------------------------------------*/
 
-Factor<out TastierType type>    (.  Symbol sym; string name; bool arrAssign = false; List<int> indexes = new List<int>();.)
+Factor<out TastierType type>    (.  Symbol sym; string name; List<int> indexes = new List<int>();.)
 =                               (.  type = TastierType.Undefined; .)
   ( Ident<out name>             (.
                                     sym = lookup(openScopes, name);
@@ -354,18 +357,16 @@ Factor<out TastierType type>    (.  Symbol sym; string name; bool arrAssign = fa
   { '[' number                  (.  
                                     int n = Convert.ToInt32(t.val);
                                     indexes.Add(n);
-                                    arrAssign = true;
                                 .)    
     ']'     
   }    
                                 (.  
                                     type = (TastierType)sym.Item3;
 
-                                    if ((TastierKind)sym.Item2 == TastierKind.Var || (TastierKind)sym.Item2 == TastierKind.Const || 
-                                        (TastierKind)sym.Item2 == TastierKind.Var) {
-                                      if (sym.Item4 == 0) {
+                                    if ((TastierKind)sym.Item2 == TastierKind.Var || (TastierKind)sym.Item2 == TastierKind.ArrayVar) {
 
-                                        if(arrAssign == true) {
+                                      if (sym.Item4 == 0) {
+                                        if((TastierKind)sym.Item2 == TastierKind.ArrayVar) {
                                           ArrayDecl temp = null; int arrLen = 1;
 
                                           foreach (ArrayDecl a in arraysList) {
@@ -475,7 +476,10 @@ ProcDecl                        (.  string name; string label; Scope currentScop
                                     openScopes.Push(new Scope());
                                     currentScope = openScopes.Peek();
                                 .)
-  '(' { VarDecl } ')'
+  '(' { ParamDecl<name> 
+        { ',' ParamDecl<name> }
+      } 
+  ')'
   '{'                           (.
                                     program.Add(new Instruction("", "Enter 0"));
                                     enterInstLocation = program.Count - 1;
@@ -550,9 +554,7 @@ SimExpr<out TastierType type>   (.  TastierType type1; Instruction inst; .)
 
 /*------------------------------------------------------------------------*/
 
-Stat                            (.  TastierType type, type1; string name; Symbol sym; 
-                                    List<int> indexes = new List<int>(); bool arrAssign = false;
-                                .)
+Stat                            (.  TastierType type, type1; string name, name1; Symbol sym; List<int> indexes = new List<int>(); .)
 
 = Ident<out name>               (.
                                     sym = lookup(openScopes, name);
@@ -562,19 +564,19 @@ Stat                            (.  TastierType type, type1; string name; Symbol
   { '[' number                  (.  
                                     int n = Convert.ToInt32(t.val);
                                     indexes.Add(n);
-                                    arrAssign = true;
                                 .)   
     ']'     
   }
 
    ( ":="                        
     
-    Expr<out type>	            (.  if ((((TastierKind)sym.Item2 != TastierKind.Var) && ((TastierKind)sym.Item2 != TastierKind.Var))) 
+    Expr<out type>	            (.  if ((TastierKind)sym.Item2 != TastierKind.Var && (TastierKind)sym.Item2 != TastierKind.ArrayVar) {
                                       SemErr("cannot assign to non-variable");
+                                    }
                                     if ((type != (TastierType)sym.Item3)) SemErr("incompatible types");
 
                                     if (sym.Item4 == 0) {
-                                      if(arrAssign == true) {
+                                      if((TastierKind)sym.Item2 == TastierKind.ArrayVar) {
                                         ArrayDecl temp = null; int arrLen = 1;
 
                                         foreach (ArrayDecl a in arraysList) {
@@ -613,12 +615,114 @@ Stat                            (.  TastierType type, type1; string name; Symbol
                                 .)
     ';'
 
-  | '(' ')' ';'                 (.  if ((TastierKind)sym.Item2 != TastierKind.Proc) SemErr("object is not a procedure"); 
-                                    int currentStackLevel = openScopes.Count;
-                                    int lexicalLevelDifference = Math.Abs(openScopes.Count - sym.Item4);
-                                    string procedureLabel = getLabelForProcedureName(lexicalLevelDifference, sym.Item1);
-                                    program.Add(new Instruction("", "Call " + lexicalLevelDifference + " " + procedureLabel));
-                                .)
+  | '('                     (.  ArrayDecl attr = null, param = null; int i = 0, numParams = 0; int arrLen = 1;
+                                Symbol tempSym, tempSym1; List<Symbol> tempSymList = new List<Symbol>();
+
+                                if ((TastierKind)sym.Item2 != TastierKind.Proc) SemErr("object is not a procedure"); 
+
+                                foreach (ParameterisedProc p in paramProcsList) {
+                                  if((p.Item1).Equals(name)) {
+                                    tempSymList = p.Item2; numParams = tempSymList.Count; break;
+                                  }
+                                }
+
+                            .)
+      [ Ident<out name1>    (.  tempSym = lookup(openScopes, name1);
+                                if (tempSym == null) SemErr("reference to undefined constant or variable " + name1);
+                                if ((TastierKind)tempSym.Item2 != TastierKind.Var && (TastierKind)tempSym.Item2 != TastierKind.ArrayVar) 
+                                  SemErr("attribute must be a variable");
+
+                                tempSym1 = tempSymList[i];
+                                if ((int)tempSym.Item3 != (int)tempSym1.Item3) SemErr ("invalid procedure call, incompatible types");
+
+                                if (tempSym.Item4 == 0) {
+                                  if ((TastierKind)tempSym.Item2 == TastierKind.ArrayVar) {
+
+                                    foreach (ArrayDecl a in arraysList) {
+                                      if((a.Item1).Equals(name1)) {
+                                        attr = a; break;
+                                      }
+                                    }
+                                    foreach (ArrayDecl a in arraysList) {
+                                      if((a.Item1).Equals(tempSym1.Item1)) {
+                                        param = a; break;
+                                      }
+                                    }
+
+                                    if ((attr.Item2).SequenceEqual(param.Item2)) {
+                                      for (int j = 0; j < attr.Item2.Count; j++) arrLen = arrLen * attr.Item2[j];
+                                    } else { SemErr ("incompatible array attribute"); }
+
+                                    for (int k = 0; k < arrLen; k++) {
+                                      program.Add(new Instruction("", "LoadG " + (tempSym.Item5+3+k)));
+                                      program.Add(new Instruction("", "StoG " + (tempSym1.Item5+3+k)));
+                                    }
+                                  }else { 
+                                    program.Add(new Instruction("", "LoadG " + (tempSym.Item5 + 3)));
+                                    program.Add(new Instruction("", "StoG " + (tempSym1.Item5 + 3)));
+                                  }
+                                } else {
+                                  int lexicalLevelDifferencetempSym = Math.Abs(openScopes.Count - tempSym.Item4)-1;
+                                  program.Add(new Instruction("", "Load " + lexicalLevelDifferencetempSym + " " + tempSym.Item5));
+                                  program.Add(new Instruction("", "StoG " + (tempSym1.Item5 + 3)));
+                                }
+                                i = i + 1;   
+                            .)
+        { ',' 
+          Ident<out name1>    (.  tempSym = lookup(openScopes, name1);
+                                if (tempSym == null) SemErr("reference to undefined constant or variable " + name1);
+                                if ((TastierKind)tempSym.Item2 != TastierKind.Var && (TastierKind)tempSym.Item2 != TastierKind.ArrayVar) 
+                                  SemErr("attribute must be a variable");
+
+                                tempSym1 = tempSymList[i];
+                                if ((int)tempSym.Item3 != (int)tempSym1.Item3) SemErr ("invalid procedure call, incompatible types");
+
+                                if (tempSym.Item4 == 0) {
+                                  if ((TastierKind)tempSym.Item2 == TastierKind.ArrayVar) {
+
+                                    foreach (ArrayDecl a in arraysList) {
+                                      if((a.Item1).Equals(name1)) {
+                                        attr = a; break;
+                                      }
+                                    }
+                                    foreach (ArrayDecl a in arraysList) {
+                                      if((a.Item1).Equals(tempSym1.Item1)) {
+                                        param = a; break;
+                                      }
+                                    }
+
+                                    if ((attr.Item2).SequenceEqual(param.Item2)) {
+                                      for (int j = 0; j < attr.Item2.Count; j++) arrLen = arrLen * attr.Item2[j];
+                                    } else { SemErr ("incompatible array attribute"); }
+
+                                    for (int k = 0; k < arrLen; k++) {
+                                      program.Add(new Instruction("", "LoadG " + (tempSym.Item5+3+k)));
+                                      program.Add(new Instruction("", "StoG " + (tempSym1.Item5+3+k)));
+                                    }
+                                  }else { 
+                                    program.Add(new Instruction("", "LoadG " + (tempSym.Item5 + 3)));
+                                    program.Add(new Instruction("", "StoG " + (tempSym1.Item5 + 3)));
+                                  }
+                                } else {
+                                  int lexicalLevelDifferencetempSym = Math.Abs(openScopes.Count - tempSym.Item4)-1;
+                                  program.Add(new Instruction("", "Load " + lexicalLevelDifferencetempSym + " " + tempSym.Item5));
+                                  program.Add(new Instruction("", "StoG " + (tempSym1.Item5 + 3)));
+                                }
+                                i = i + 1;   
+                            .)
+        } 
+      ]                     
+                            (.  if(numParams != 0) {
+                                  if(i != numParams) SemErr("invalid procedure call, procedure takes " + numParams + " parameters");
+                                }
+                            .)
+
+    ')' ';'                 (.   
+                                int currentStackLevel = openScopes.Count;
+                                int lexicalLevelDifference = Math.Abs(openScopes.Count - sym.Item4);
+                                string procedureLabel = getLabelForProcedureName(lexicalLevelDifference, sym.Item1);
+                                program.Add(new Instruction("", "Call " + lexicalLevelDifference + " " + procedureLabel));
+                            .)
    )
 
 | "if"
@@ -664,7 +768,7 @@ Stat                            (.  TastierType type, type1; string name; Symbol
                                 .)
     ":="                        
     Expr<out type>              (.  
-                                    if ((((TastierKind)sym.Item2 != TastierKind.Var) && ((TastierKind)sym.Item2 != TastierKind.Var))) 
+                                    if ((((TastierKind)sym.Item2 != TastierKind.Var) && ((TastierKind)sym.Item2 != TastierKind.ArrayVar)))  
                                       SemErr("cannot assign to non-variable");
                                     if ((type != (TastierType)sym.Item3)) SemErr("incompatible types");		
 
@@ -691,7 +795,7 @@ Stat                            (.  TastierType type, type1; string name; Symbol
                                 .)
     ":="
     Expr<out type>		          (.
-				                            if ((((TastierKind)sym.Item2 != TastierKind.Var) && ((TastierKind)sym.Item2 != TastierKind.Var))) 
+				                            if ((((TastierKind)sym.Item2 != TastierKind.Var) && ((TastierKind)sym.Item2 != TastierKind.ArrayVar))) 
                                       SemErr("cannot assign to non-variable");
                                     if ((type != (TastierType)sym.Item3)) SemErr("incompatible types");
 
@@ -943,9 +1047,12 @@ RecordDecl                      (.  string name, name1; TastierType type; Scope 
 
                                     if (recordValid == true) {
                                       foreach (RecordDeclMember r in recDeclVars) {
-                                        currentScope.Push(new Symbol((name1 + '.' + r.Item1), (int)TastierKind.Var, r.Item2, 0, nextFreeAddress));
+                                        if (r.Item3 == -1) {
+                                          currentScope.Push(new Symbol((name1 + '.' + r.Item1), (int)TastierKind.Var, r.Item2, 0, nextFreeAddress));
+                                          nextFreeAddress = nextFreeAddress + 1;
 
-                                        if (r.Item3 != -1) {  // array 
+                                        } else { // array 
+                                          currentScope.Push(new Symbol((name1 + '.' + r.Item1), (int)TastierKind.ArrayVar, r.Item2, 0, nextFreeAddress));
                                           for (int i = 0; i < r.Item3; i++) {
                                             program.Add(new Instruction("", "Const " + 0));
                                             program.Add(new Instruction("", "StoG " + (nextFreeAddress+3)));
@@ -959,9 +1066,7 @@ RecordDecl                      (.  string name, name1; TastierType type; Scope 
                                             }
                                           }
                                           arraysList.Add(new ArrayDecl((name1 + '.' + r.Item1), templengths));
-                                        } else {
-                                          nextFreeAddress = nextFreeAddress + 1;
-                                        }
+                                        } 
                                       }
                                     } else {
                                       SemErr ("cannot instantiate " + name1 + " on non resolved record variable " + name);
@@ -972,11 +1077,12 @@ RecordDecl                      (.  string name, name1; TastierType type; Scope 
 
 /*------------------------------------------------------------------------*/
 
-VarDecl                         (.  string name; TastierType type; Scope currentScope = openScopes.Peek(); int arrLen = 1;
+VarDecl
+                                (.  string name; TastierType type; Scope currentScope = openScopes.Peek(); int arrLen = 1;
                                     bool arrDecl = false; List<int> lengths = new List<int>(); 
                                 .)
 = Type<out type>
-  Ident<out name>             
+  Ident<out name>                            
   {
     '['number                   (.  int n = Convert.ToInt32(t.val);
                                     lengths.Add(n);
@@ -985,9 +1091,9 @@ VarDecl                         (.  string name; TastierType type; Scope current
                                 .)
     ']'
   }             
-                                (.
+                                (.  
                                     if (arrDecl == true) {
-                                      currentScope.Push(new Symbol(name, (int)TastierKind.Var, (int)type, 0, nextFreeAddress));
+                                      currentScope.Push(new Symbol(name, (int)TastierKind.ArrayVar, (int)type, 0, nextFreeAddress));
                                       arraysList.Add(new ArrayDecl(name, lengths));
 
                                       for (int i = 0; i < arrLen; i++) {
@@ -1005,7 +1111,6 @@ VarDecl                         (.  string name; TastierType type; Scope current
                                     }
                                 .)
       { ',' 
-        [ Type<out type> ]
         Ident<out name>       
         {
         '['number               (.  int n = Convert.ToInt32(t.val);
@@ -1017,7 +1122,7 @@ VarDecl                         (.  string name; TastierType type; Scope current
         }             
                                 (.
                                     if (arrDecl == true) {
-                                      currentScope.Push(new Symbol(name, (int)TastierKind.Var, (int)type, 0, nextFreeAddress));
+                                      currentScope.Push(new Symbol(name, (int)TastierKind.ArrayVar, (int)type, 0, nextFreeAddress));
                                       arraysList.Add(new ArrayDecl(name, lengths));
 
                                       for (int i = 0; i < arrLen; i++) {
@@ -1034,8 +1139,58 @@ VarDecl                         (.  string name; TastierType type; Scope current
                                       currentScope.Push(new Symbol(name, (int)TastierKind.Var, (int)type, openScopes.Count-1, currentScope.Count(s => s.Item2 == (int)TastierKind.Var)));
                                     }
                                 .)
-      } ';' 
+      }                         
+      ';'                          
   | RecordDecl .
+
+/*------------------------------------------------------------------------*/
+
+ParamDecl<string ProcedureName>
+                                (.  string name; TastierType type; Scope currentScope = openScopes.Peek(); int arrLen = 1;
+                                    bool arrDecl = false; List<int> lengths = new List<int>();
+                                    ParameterisedProc pp = null;
+
+                                    foreach (ParameterisedProc p in paramProcsList) {
+                                      if((p.Item1).Equals(ProcedureName)) pp = p; break;
+                                    }
+
+                                    if (pp == null) {
+                                      List<Symbol> temp = new List<Symbol>();
+                                      pp = new ParameterisedProc(ProcedureName, temp);
+                                      paramProcsList.Add(pp);
+                                    }
+                                .)
+= Type<out type>
+  Ident<out name>                            
+  {
+    '['number                   (.  int n = Convert.ToInt32(t.val);
+                                    lengths.Add(n);
+                                    arrLen = arrLen * n;
+                                    arrDecl = true;
+                                .)
+    ']'
+  }             
+                                (.  
+                                    if (arrDecl == true) {
+                                      Symbol sym = new Symbol(name, (int)TastierKind.ArrayVar, (int)type, 0, nextFreeAddress);
+                                      currentScope.Push(sym);
+                                      arraysList.Add(new ArrayDecl(name, lengths));
+                                      pp.Item2.Add(sym);
+
+                                      for (int i = 0; i < arrLen; i++) {
+                                        program.Add(new Instruction("", "Const " + 0));
+                                        program.Add(new Instruction("", "StoG " + (nextFreeAddress + 3)));
+                                        nextFreeAddress = nextFreeAddress + 1;
+                                      }
+
+                                    } else {
+                                      Symbol sym = new Symbol(name, (int)TastierKind.Var, (int)type, 0, nextFreeAddress);
+                                      currentScope.Push(sym);
+                                      nextFreeAddress = nextFreeAddress + 1;
+                                      pp.Item2.Add(sym);
+                                    }
+                                .)                            
+ .
 
 END Tastier.
 
