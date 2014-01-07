@@ -358,64 +358,75 @@ Expr<out TastierType type>      (.  TastierType type1; Instruction inst; .)
 
 /*------------------------------------------------------------------------*/
 
-Factor<out TastierType type>    (.  Symbol sym; string name; List<int> indexes = new List<int>();.)
+loadOrStoreAtArrayIndex<bool store, Symbol sym>
+                                (.  List<int> indexes = new List<int>(); ArrayDecl temp = null; int n, arrLen = 1; 
+                                    TastierType type;
+                                .)
+=
+   '[' number                   (.  
+                                    n = Convert.ToInt32(t.val);
+                                    indexes.Add(n);
+                                .)    
+    ']'     
+    { '[' number                (.  
+                                    n = Convert.ToInt32(t.val);
+                                    indexes.Add(n);
+                                .)    
+      ']'
+    }       
+                                (.  if((TastierKind)sym.Item2 != TastierKind.ArrayVar) SemErr ("cannot index into non-array");
+
+                                    foreach (ArrayDecl a in arraysList) {
+                                      if((a.Item1).Equals(sym.Item1)){
+                                        temp = a; break;
+                                      }
+                                    }
+
+                                    if (temp.Item2.Count != indexes.Count ) SemErr("cannot convert from "+indexes.Count+"D to "+temp.Item2.Count+"D");
+
+                                    for (int i = 0; i < temp.Item2.Count; i++) {
+                                      if ((temp.Item2[i] - indexes[i]) < 1) SemErr("array out of bounds exception: " + indexes[i]);
+                                        arrLen = arrLen * temp.Item2[i];
+                                    }
+
+                                    int offset = indexes[0];
+                                    for (int i = 1; i < temp.Item2.Count; i++) {
+                                      offset = offset * temp.Item2[i];
+                                      offset = offset + indexes[i];
+                                    }
+
+                                    if (offset > arrLen) SemErr("array out of bounds exception: " + offset);
+                                .)
+    ( ":="                      (.  if (store == false) SemErr("syntax error '='"); .) 
+      Expr<out type>            (.  program.Add(new Instruction("", "StoG " + ((sym.Item5 + 3) + offset))); .)
+      ';'
+    |                           (.  program.Add(new Instruction("", "LoadG " + ((sym.Item5 + 3) + offset))); .)  
+    )                         
+.
+
+/*------------------------------------------------------------------------*/
+
+Factor<out TastierType type>    (.  Symbol sym; string name; bool store = false; .)
 =                               (.  type = TastierType.Undefined; .)
   ( Ident<out name>             (.
                                     sym = lookup(openScopes, name);
                                     if (sym == null) SemErr("reference to undefined variable " + name);
                                 .)
 
-  { '[' number                  (.  
-                                    int n = Convert.ToInt32(t.val);
-                                    indexes.Add(n);
-                                .)    
-    ']'     
-  }    
-                                (.  
-                                    type = (TastierType)sym.Item3;
+    ( loadOrStoreAtArrayIndex
+      <store, sym>
 
-                                    if ((TastierKind)sym.Item2 == TastierKind.Var || (TastierKind)sym.Item2 == TastierKind.ArrayVar) {
-
-                                      if (sym.Item4 == 0) {
-                                        if((TastierKind)sym.Item2 == TastierKind.ArrayVar) {
-                                          ArrayDecl temp = null; int arrLen = 1;
-
-                                          foreach (ArrayDecl a in arraysList) {
-                                            if((a.Item1).Equals(name)){
-                                              temp = a; break;
-                                            }
-                                          }
-
-                                          if (temp == null) SemErr("cannot index into non-array");
-                                          if (temp.Item2.Count != indexes.Count ) SemErr("cannot convert from "+indexes.Count+"D to "+temp.Item2.Count+"D");
-
-                                          for (int i = 0; i < temp.Item2.Count; i++) {
-                                            if ((temp.Item2[i] - indexes[i]) < 1) SemErr("array out of bounds exception: " + indexes[i]);
-                                            arrLen = arrLen * temp.Item2[i];
-                                          }
-
-                                          int offset = indexes[0];
-                                          for (int i = 1; i < temp.Item2.Count; i++) {
-                                            offset = offset * temp.Item2[i];
-                                            offset = offset + indexes[i];
-                                          }
-
-                                          if (offset > arrLen) SemErr("array out of bounds exception: " + offset);
-
-                                          program.Add(new Instruction("", "LoadG " + ((sym.Item5 + 3) + offset)));
-
-                                        } else {
-                                          program.Add(new Instruction("", "LoadG " + (sym.Item5+3)));
-                                        }
-
-                                      } else {
+    |                           (.  if ((TastierKind)sym.Item2 != TastierKind.Var) SemErr ("variable expected");
+                                    if (sym.Item4 == 0) {
+                                      program.Add(new Instruction("", "LoadG " + (sym.Item5+3)));
+                                    } else {
                                         int lexicalLevelDifference = Math.Abs(openScopes.Count - sym.Item4)-1;
                                         program.Add(new Instruction("", "Load " + lexicalLevelDifference + " " + sym.Item5));
-                                      }
-                                    } else {
-                                      SemErr("variable expected");
                                     }
                                 .)
+    )    
+                                (.  type = (TastierType)sym.Item3; .)
+
   | number                      (.
                                     int n = Convert.ToInt32(t.val);
                                     program.Add(new Instruction("", "Const " + n));
@@ -565,11 +576,11 @@ SimExpr<out TastierType type>   (.  TastierType type1; Instruction inst; .)
 
 /*------------------------------------------------------------------------*/
 
-ProcedureCall<Symbol sym>       (.  string name1; .)
-=
-  '('                           (.  ArrayDecl attr = null, param = null; int i = 0, numParams = 0; int arrLen = 1;
+ProcedureCall<Symbol sym>       (.  string name1; ArrayDecl attr = null, param = null; int i = 0, numParams = 0; int arrLen = 1;
                                     Symbol tempSym, tempSym1; List<Symbol> tempSymList = new List<Symbol>(); bool minus = false;
-
+                                .)
+=
+  '('                           (.  
                                     if ((TastierKind)sym.Item2 != TastierKind.Proc) SemErr("object is not a procedure"); 
 
                                     foreach (ParameterisedProc p in paramProcsList) {
@@ -848,66 +859,28 @@ ProcedureCall<Symbol sym>       (.  string name1; .)
 
 /*------------------------------------------------------------------------*/
 
-Stat                            (.  TastierType type, type1; string name; Symbol sym; List<int> indexes = new List<int>(); .)
+Stat                            (.  TastierType type, type1; string name; Symbol sym; bool store = true;.)
 
 = Ident<out name>               (.
                                     sym = lookup(openScopes, name);
                                     if (sym == null) SemErr("reference to undefined constant or variable " + name); 
                                 .)
 
-  { '[' number                  (.  
-                                    int n = Convert.ToInt32(t.val);
-                                    indexes.Add(n);
-                                .)   
-    ']'     
-  }
+  ( ( loadOrStoreAtArrayIndex
+      <store, sym>
 
-  ( ":="                        
+    | ":="                        
     
-    Expr<out type>	            (.  if ((TastierKind)sym.Item2 != TastierKind.Var && (TastierKind)sym.Item2 != TastierKind.ArrayVar) {
-                                      SemErr("cannot assign to non-variable");
-                                    }
-                                    if ((type != (TastierType)sym.Item3)) SemErr("incompatible types");
-
+      Expr<out type>            (.  if ((TastierKind)sym.Item2 != TastierKind.Var) SemErr ("variable expected");
                                     if (sym.Item4 == 0) {
-                                      if((TastierKind)sym.Item2 == TastierKind.ArrayVar) {
-                                        ArrayDecl temp = null; int arrLen = 1;
-
-                                        foreach (ArrayDecl a in arraysList) {
-                                          if((a.Item1).Equals(name)){
-                                            temp = a; break;
-                                          }
-                                        }
-
-                                        if (temp == null) SemErr("cannot index into non-array");
-                                        if (temp.Item2.Count != indexes.Count) SemErr("cannot convert from "+indexes.Count+"D to "+temp.Item2.Count+"D");
-
-                                        for (int i = 0; i < temp.Item2.Count; i++) {
-                                          if ((temp.Item2[i] - indexes[i]) < 1) SemErr("array out of bounds exception: " + indexes[i]);
-                                          arrLen = arrLen * temp.Item2[i];
-                                        }
-
-                                        int offset = indexes[0];
-                                        for (int i = 1; i < temp.Item2.Count; i++) {
-                                          offset = offset * temp.Item2[i];
-                                          offset = offset + indexes[i];
-                                        }
-
-                                        if (offset > arrLen) SemErr("array out of bounds exception: " + offset);
-
-                                        indexes = new List<int>();
-                                        program.Add(new Instruction("", "StoG " + ((sym.Item5 + 3) + offset)));
-
-                                      } else {
-                                        program.Add(new Instruction("", "StoG " + (sym.Item5 + 3)));
-                                      }
-
+                                      program.Add(new Instruction("", "StoG " + (sym.Item5+3)));
                                     } else {
                                         int lexicalLevelDifference = Math.Abs(openScopes.Count - sym.Item4)-1;
                                         program.Add(new Instruction("", "Sto " + lexicalLevelDifference + " " + sym.Item5));
                                     }
                                 .)
-    ';'
+      ';'
+    )                                            
   | ProcedureCall<sym>
   )
 
