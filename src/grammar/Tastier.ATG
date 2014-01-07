@@ -138,6 +138,17 @@ List<ArrayDecl> arraysList = new List<ArrayDecl>();
 
 List<RecordDecl> recDeclsList = new List<RecordDecl>();
 
+/*
+  using ParameterisedProc = System.Tuple<string, System.Collections.Generic.List<System.Tuple<string, int, int, int, int>>>;
+
+  paramProcsList is a List of Parameterised Procedures. A field in the list contains the name of 
+  the procedure and a list of its parameters (as symbols).
+  e.g. void example(int a, string b[2][3]) {
+          etc.
+       }
+      paramProcsList.Add(new ParameterisedProc(example, List(symbol(a),symbol(b))));
+*/
+
 List<ParameterisedProc> paramProcsList = new List<ParameterisedProc>();
 
 public static string Reverse(string s) {
@@ -554,7 +565,290 @@ SimExpr<out TastierType type>   (.  TastierType type1; Instruction inst; .)
 
 /*------------------------------------------------------------------------*/
 
-Stat                            (.  TastierType type, type1; string name, name1; Symbol sym; List<int> indexes = new List<int>(); .)
+ProcedureCall<Symbol sym>       (.  string name1; .)
+=
+  '('                           (.  ArrayDecl attr = null, param = null; int i = 0, numParams = 0; int arrLen = 1;
+                                    Symbol tempSym, tempSym1; List<Symbol> tempSymList = new List<Symbol>(); bool minus = false;
+
+                                    if ((TastierKind)sym.Item2 != TastierKind.Proc) SemErr("object is not a procedure"); 
+
+                                    foreach (ParameterisedProc p in paramProcsList) {
+                                      if((p.Item1).Equals(sym.Item1)) {
+                                      tempSymList = p.Item2; numParams = tempSymList.Count; break;
+                                      }
+                                    } 
+                                .)
+  [ ( ['-'                      (.  minus = true; .)
+      ]
+      Ident<out name1>          (.  
+                                    tempSym = lookup(openScopes, name1);
+                                    if (tempSym == null) SemErr("reference to undefined constant or variable " + name1);
+                                    if ((TastierKind)tempSym.Item2 != TastierKind.Var && (TastierKind)tempSym.Item2 != TastierKind.ArrayVar) 
+                                      SemErr("attribute must be a variable"); 
+
+                                    tempSym1 = tempSymList[i];
+                                    if ((int)tempSym.Item3 != (int)tempSym1.Item3) SemErr ("invalid procedure call, incompatible types");
+                                    if ((minus == true) && ((int)tempSym.Item3 != (int)TastierType.Integer)) SemErr ("invalid procedure call, integer expected");
+                                    if ((minus == true) && ((TastierKind)tempSym.Item2 == TastierKind.ArrayVar)) SemErr("syntax error: '-'");
+
+                                    if (tempSym.Item4 == 0) {
+                                      if ((TastierKind)tempSym.Item2 == TastierKind.ArrayVar) {
+
+                                        foreach (ArrayDecl a in arraysList) {
+                                          if((a.Item1).Equals(name1)) {
+                                            attr = a; break;
+                                          }
+                                        }
+                                        foreach (ArrayDecl a in arraysList) {
+                                          if((a.Item1).Equals(tempSym1.Item1)) {
+                                            param = a; break;
+                                          }
+                                        }
+
+                                      if ((attr.Item2).SequenceEqual(param.Item2)) {
+                                        for (int j = 0; j < attr.Item2.Count; j++) arrLen = arrLen * attr.Item2[j];
+                                      } else { SemErr ("incompatible array attribute"); }
+
+                                      for (int k = 0; k < arrLen; k++) {
+                                        program.Add(new Instruction("", "LoadG " + (tempSym.Item5+3+k)));
+                                        program.Add(new Instruction("", "StoG " + (tempSym1.Item5+3+k)));
+                                      }
+                                    } else {
+                                      program.Add(new Instruction("", "LoadG " + (tempSym.Item5 + 3)));
+                                      if (minus == true) {
+                                        program.Add(new Instruction("", "Neg"));
+                                        program.Add(new Instruction("", "Const 1"));
+                                        program.Add(new Instruction("", "Add"));
+                                      }
+                                      program.Add(new Instruction("", "StoG " + (tempSym1.Item5 + 3)));
+                                    }
+                                    } else {
+                                      int lexicalLevelDifferencetempSym = Math.Abs(openScopes.Count - tempSym.Item4)-1;
+                                      program.Add(new Instruction("", "Load " + lexicalLevelDifferencetempSym + " " + tempSym.Item5));
+                                      if (minus == true) {
+                                          program.Add(new Instruction("", "Neg"));
+                                          program.Add(new Instruction("", "Const 1"));
+                                          program.Add(new Instruction("", "Add"));
+                                      }
+                                      program.Add(new Instruction("", "StoG " + (tempSym1.Item5 + 3)));
+                                    }
+                                    i = i + 1; minus = false;  
+                                .)
+      | number                  (.  
+                                    tempSym1 = tempSymList[i];
+                                    if ((int)tempSym1.Item3 != (int)TastierType.Integer) SemErr ("invalid procedure call, incompatible types");
+                                    int n = Convert.ToInt32(t.val);
+                                    program.Add(new Instruction("", "Const " + n));
+                                    program.Add(new Instruction("", "StoG " + (tempSym1.Item5 + 3)));
+                                    i = i + 1;
+                                .)
+      | '-' number              (.  
+                                    tempSym1 = tempSymList[i];
+                                    if ((int)tempSym1.Item3 != (int)TastierType.Integer) SemErr ("invalid procedure call, incompatible types");
+                                    int n = Convert.ToInt32(t.val);
+                                    program.Add(new Instruction("", "Const " + n));
+                                    program.Add(new Instruction("", "Neg"));
+                                    program.Add(new Instruction("", "Const 1"));
+                                    program.Add(new Instruction("", "Add"));
+                                    program.Add(new Instruction("", "StoG " + (tempSym1.Item5 + 3)));
+                                    i = i + 1;
+                                .)
+      | char                    (.
+                                    tempSym1 = tempSymList[i];
+                                    if ((int)tempSym1.Item3 != (int)TastierType.Character) SemErr ("invalid procedure call, incompatible types");
+                                    foreach(char c in t.val) {
+                                      if(c != '\'') program.Add(new Instruction("", "Const " + Convert.ToInt32(c)));
+                                    }
+                                    program.Add(new Instruction("", "StoG " + (tempSym1.Item5 + 3)));
+                                    i = i + 1;
+                                .)
+      | string                  (.
+                                    tempSym1 = tempSymList[i];
+                                    if ((int)tempSym1.Item3 != (int)TastierType.String) SemErr ("invalid procedure call, incompatible types");
+                                    int len = 0;
+
+                                    foreach(char c in t.val) {
+                                      if(c != '"') len = len + 1;
+                                    }
+
+                                    int stringStartAddress = nextFreeAddress;
+                                    program.Add(new Instruction("", "Const " + len));
+                                    program.Add(new Instruction("", "StoG " + (nextFreeAddress + 3)));
+                                    nextFreeAddress = nextFreeAddress + 1;
+
+                                    string rev = Reverse(t.val);
+
+                                    foreach(char c in rev) {
+                                      if(c != '"') {
+                                        program.Add(new Instruction("", "Const " + Convert.ToInt32(c)));
+                                        program.Add(new Instruction("", "StoG " + (nextFreeAddress + 3)));
+                                        nextFreeAddress = nextFreeAddress + 1;
+                                      }
+                                    }
+                                    program.Add(new Instruction("", "Const " + (stringStartAddress + 3)));
+                                    program.Add(new Instruction("", "StoG " + (tempSym1.Item5 + 3)));
+                                    i = i + 1;
+                                .)
+        | "true"                (.  
+                                    tempSym1 = tempSymList[i];
+                                    if ((int)tempSym1.Item3 != (int)TastierType.Boolean) SemErr ("invalid procedure call, incompatible types");
+                                    program.Add(new Instruction("", "Const " + 1));
+                                    program.Add(new Instruction("", "StoG " + (tempSym1.Item5 + 3)));
+                                    i = i + 1;
+                                .)
+        | "false"               (.  
+                                    tempSym1 = tempSymList[i];
+                                    if ((int)tempSym1.Item3 != (int)TastierType.Boolean) SemErr ("invalid procedure call, incompatible types");
+                                    program.Add(new Instruction("", "Const " + 0));
+                                    program.Add(new Instruction("", "StoG " + (tempSym1.Item5 + 3)));
+                                    i = i + 1;
+                                .)
+      ) 
+      { ',' ( ['-'              (.  minus = true; .)
+              ]
+              Ident<out name1>  (.  
+                                    tempSym = lookup(openScopes, name1);
+                                    if (tempSym == null) SemErr("reference to undefined constant or variable " + name1);
+                                    if ((TastierKind)tempSym.Item2 != TastierKind.Var && (TastierKind)tempSym.Item2 != TastierKind.ArrayVar) 
+                                      SemErr("attribute must be a variable"); 
+
+                                    tempSym1 = tempSymList[i];
+                                    if ((int)tempSym.Item3 != (int)tempSym1.Item3) SemErr ("invalid procedure call, incompatible types");
+                                    if ((minus == true) && ((int)tempSym.Item3 != (int)TastierType.Integer)) SemErr ("invalid procedure call, integer expected");
+                                    if ((minus == true) && ((TastierKind)tempSym.Item2 == TastierKind.ArrayVar)) SemErr("syntax error: '-'");
+
+                                    if (tempSym.Item4 == 0) {
+                                      if ((TastierKind)tempSym.Item2 == TastierKind.ArrayVar) {
+
+                                        foreach (ArrayDecl a in arraysList) {
+                                          if((a.Item1).Equals(name1)) {
+                                            attr = a; break;
+                                          }
+                                        }
+                                        foreach (ArrayDecl a in arraysList) {
+                                          if((a.Item1).Equals(tempSym1.Item1)) {
+                                            param = a; break;
+                                          }
+                                        }
+
+                                        if ((attr.Item2).SequenceEqual(param.Item2)) {
+                                          for (int j = 0; j < attr.Item2.Count; j++) arrLen = arrLen * attr.Item2[j];
+                                        } else { SemErr ("incompatible array attribute"); }
+
+                                        for (int k = 0; k < arrLen; k++) {
+                                          program.Add(new Instruction("", "LoadG " + (tempSym.Item5+3+k)));
+                                          program.Add(new Instruction("", "StoG " + (tempSym1.Item5+3+k)));
+                                        }
+                                      } else {
+                                        program.Add(new Instruction("", "LoadG " + (tempSym.Item5 + 3)));
+                                        if (minus == true) {
+                                          program.Add(new Instruction("", "Neg"));
+                                          program.Add(new Instruction("", "Const 1"));
+                                          program.Add(new Instruction("", "Add"));
+                                        }
+                                        program.Add(new Instruction("", "StoG " + (tempSym1.Item5 + 3)));
+                                      }
+                                    } else {
+                                      int lexicalLevelDifferencetempSym = Math.Abs(openScopes.Count - tempSym.Item4)-1;
+                                      program.Add(new Instruction("", "Load " + lexicalLevelDifferencetempSym + " " + tempSym.Item5));
+                                      if (minus == true) {
+                                          program.Add(new Instruction("", "Neg"));
+                                          program.Add(new Instruction("", "Const 1"));
+                                          program.Add(new Instruction("", "Add"));
+                                      }
+                                      program.Add(new Instruction("", "StoG " + (tempSym1.Item5 + 3)));
+                                    }
+                                    i = i + 1; minus = false;  
+                                .)
+            | number            (.  
+                                    tempSym1 = tempSymList[i];
+                                    if ((int)tempSym1.Item3 != (int)TastierType.Integer) SemErr ("invalid procedure call, incompatible types");
+                                    int n = Convert.ToInt32(t.val);
+                                    program.Add(new Instruction("", "Const " + n));
+                                    program.Add(new Instruction("", "StoG " + (tempSym1.Item5 + 3)));
+                                    i = i + 1;
+                                .)
+            | '-' number        (.  
+                                    tempSym1 = tempSymList[i];
+                                    if ((int)tempSym1.Item3 != (int)TastierType.Integer) SemErr ("invalid procedure call, incompatible types");
+                                    int n = Convert.ToInt32(t.val);
+                                    program.Add(new Instruction("", "Const " + n));
+                                    program.Add(new Instruction("", "Neg"));
+                                    program.Add(new Instruction("", "Const 1"));
+                                    program.Add(new Instruction("", "Add"));
+                                    program.Add(new Instruction("", "StoG " + (tempSym1.Item5 + 3)));
+                                    i = i + 1;
+                                .)
+            | char              (.
+                                    tempSym1 = tempSymList[i];
+                                    if ((int)tempSym1.Item3 != (int)TastierType.Character) SemErr ("invalid procedure call, incompatible types");
+                                    foreach(char c in t.val) {
+                                      if(c != '\'') program.Add(new Instruction("", "Const " + Convert.ToInt32(c)));
+                                    }
+                                    program.Add(new Instruction("", "StoG " + (tempSym1.Item5 + 3)));
+                                    i = i + 1;
+                                .)
+            | string            (.
+                                    tempSym1 = tempSymList[i];
+                                    if ((int)tempSym1.Item3 != (int)TastierType.String) SemErr ("invalid procedure call, incompatible types");
+                                    int len = 0;
+
+                                    foreach(char c in t.val) {
+                                      if(c != '"') len = len + 1;
+                                    }
+
+                                    int stringStartAddress = nextFreeAddress;
+                                    program.Add(new Instruction("", "Const " + len));
+                                    program.Add(new Instruction("", "StoG " + (nextFreeAddress + 3)));
+                                    nextFreeAddress = nextFreeAddress + 1;
+
+                                    string rev = Reverse(t.val);
+
+                                    foreach(char c in rev) {
+                                      if(c != '"') {
+                                        program.Add(new Instruction("", "Const " + Convert.ToInt32(c)));
+                                        program.Add(new Instruction("", "StoG " + (nextFreeAddress + 3)));
+                                        nextFreeAddress = nextFreeAddress + 1;
+                                      }
+                                    }
+                                    program.Add(new Instruction("", "Const " + (stringStartAddress + 3)));
+                                    program.Add(new Instruction("", "StoG " + (tempSym1.Item5 + 3)));
+                                    i = i + 1;
+                                .)
+            | "true"                (.  
+                                    tempSym1 = tempSymList[i];
+                                    if ((int)tempSym1.Item3 != (int)TastierType.Boolean) SemErr ("invalid procedure call, incompatible types");
+                                    program.Add(new Instruction("", "Const " + 1));
+                                    program.Add(new Instruction("", "StoG " + (tempSym1.Item5 + 3)));
+                                    i = i + 1;
+                                .)
+            | "false"           (.  
+                                    tempSym1 = tempSymList[i];
+                                    if ((int)tempSym1.Item3 != (int)TastierType.Boolean) SemErr ("invalid procedure call, incompatible types");
+                                    program.Add(new Instruction("", "Const " + 0));
+                                    program.Add(new Instruction("", "StoG " + (tempSym1.Item5 + 3)));
+                                    i = i + 1;
+                                .)
+            )
+      }
+  ]                     
+                                (.  
+                                  if(numParams != 0) {
+                                    if(i != numParams) SemErr("invalid procedure call, procedure takes " + numParams + " parameters");
+                                  }
+                                .)
+
+    ')' ';'                 (.   
+                                int currentStackLevel = openScopes.Count;
+                                int lexicalLevelDifference = Math.Abs(openScopes.Count - sym.Item4);
+                                string procedureLabel = getLabelForProcedureName(lexicalLevelDifference, sym.Item1);
+                                program.Add(new Instruction("", "Call " + lexicalLevelDifference + " " + procedureLabel));
+                            .)
+   .
+
+/*------------------------------------------------------------------------*/
+
+Stat                            (.  TastierType type, type1; string name; Symbol sym; List<int> indexes = new List<int>(); .)
 
 = Ident<out name>               (.
                                     sym = lookup(openScopes, name);
@@ -568,7 +862,7 @@ Stat                            (.  TastierType type, type1; string name, name1;
     ']'     
   }
 
-   ( ":="                        
+  ( ":="                        
     
     Expr<out type>	            (.  if ((TastierKind)sym.Item2 != TastierKind.Var && (TastierKind)sym.Item2 != TastierKind.ArrayVar) {
                                       SemErr("cannot assign to non-variable");
@@ -614,116 +908,8 @@ Stat                            (.  TastierType type, type1; string name, name1;
                                     }
                                 .)
     ';'
-
-  | '('                     (.  ArrayDecl attr = null, param = null; int i = 0, numParams = 0; int arrLen = 1;
-                                Symbol tempSym, tempSym1; List<Symbol> tempSymList = new List<Symbol>();
-
-                                if ((TastierKind)sym.Item2 != TastierKind.Proc) SemErr("object is not a procedure"); 
-
-                                foreach (ParameterisedProc p in paramProcsList) {
-                                  if((p.Item1).Equals(name)) {
-                                    tempSymList = p.Item2; numParams = tempSymList.Count; break;
-                                  }
-                                }
-
-                            .)
-      [ Ident<out name1>    (.  tempSym = lookup(openScopes, name1);
-                                if (tempSym == null) SemErr("reference to undefined constant or variable " + name1);
-                                if ((TastierKind)tempSym.Item2 != TastierKind.Var && (TastierKind)tempSym.Item2 != TastierKind.ArrayVar) 
-                                  SemErr("attribute must be a variable");
-
-                                tempSym1 = tempSymList[i];
-                                if ((int)tempSym.Item3 != (int)tempSym1.Item3) SemErr ("invalid procedure call, incompatible types");
-
-                                if (tempSym.Item4 == 0) {
-                                  if ((TastierKind)tempSym.Item2 == TastierKind.ArrayVar) {
-
-                                    foreach (ArrayDecl a in arraysList) {
-                                      if((a.Item1).Equals(name1)) {
-                                        attr = a; break;
-                                      }
-                                    }
-                                    foreach (ArrayDecl a in arraysList) {
-                                      if((a.Item1).Equals(tempSym1.Item1)) {
-                                        param = a; break;
-                                      }
-                                    }
-
-                                    if ((attr.Item2).SequenceEqual(param.Item2)) {
-                                      for (int j = 0; j < attr.Item2.Count; j++) arrLen = arrLen * attr.Item2[j];
-                                    } else { SemErr ("incompatible array attribute"); }
-
-                                    for (int k = 0; k < arrLen; k++) {
-                                      program.Add(new Instruction("", "LoadG " + (tempSym.Item5+3+k)));
-                                      program.Add(new Instruction("", "StoG " + (tempSym1.Item5+3+k)));
-                                    }
-                                  }else { 
-                                    program.Add(new Instruction("", "LoadG " + (tempSym.Item5 + 3)));
-                                    program.Add(new Instruction("", "StoG " + (tempSym1.Item5 + 3)));
-                                  }
-                                } else {
-                                  int lexicalLevelDifferencetempSym = Math.Abs(openScopes.Count - tempSym.Item4)-1;
-                                  program.Add(new Instruction("", "Load " + lexicalLevelDifferencetempSym + " " + tempSym.Item5));
-                                  program.Add(new Instruction("", "StoG " + (tempSym1.Item5 + 3)));
-                                }
-                                i = i + 1;   
-                            .)
-        { ',' 
-          Ident<out name1>    (.  tempSym = lookup(openScopes, name1);
-                                if (tempSym == null) SemErr("reference to undefined constant or variable " + name1);
-                                if ((TastierKind)tempSym.Item2 != TastierKind.Var && (TastierKind)tempSym.Item2 != TastierKind.ArrayVar) 
-                                  SemErr("attribute must be a variable");
-
-                                tempSym1 = tempSymList[i];
-                                if ((int)tempSym.Item3 != (int)tempSym1.Item3) SemErr ("invalid procedure call, incompatible types");
-
-                                if (tempSym.Item4 == 0) {
-                                  if ((TastierKind)tempSym.Item2 == TastierKind.ArrayVar) {
-
-                                    foreach (ArrayDecl a in arraysList) {
-                                      if((a.Item1).Equals(name1)) {
-                                        attr = a; break;
-                                      }
-                                    }
-                                    foreach (ArrayDecl a in arraysList) {
-                                      if((a.Item1).Equals(tempSym1.Item1)) {
-                                        param = a; break;
-                                      }
-                                    }
-
-                                    if ((attr.Item2).SequenceEqual(param.Item2)) {
-                                      for (int j = 0; j < attr.Item2.Count; j++) arrLen = arrLen * attr.Item2[j];
-                                    } else { SemErr ("incompatible array attribute"); }
-
-                                    for (int k = 0; k < arrLen; k++) {
-                                      program.Add(new Instruction("", "LoadG " + (tempSym.Item5+3+k)));
-                                      program.Add(new Instruction("", "StoG " + (tempSym1.Item5+3+k)));
-                                    }
-                                  }else { 
-                                    program.Add(new Instruction("", "LoadG " + (tempSym.Item5 + 3)));
-                                    program.Add(new Instruction("", "StoG " + (tempSym1.Item5 + 3)));
-                                  }
-                                } else {
-                                  int lexicalLevelDifferencetempSym = Math.Abs(openScopes.Count - tempSym.Item4)-1;
-                                  program.Add(new Instruction("", "Load " + lexicalLevelDifferencetempSym + " " + tempSym.Item5));
-                                  program.Add(new Instruction("", "StoG " + (tempSym1.Item5 + 3)));
-                                }
-                                i = i + 1;   
-                            .)
-        } 
-      ]                     
-                            (.  if(numParams != 0) {
-                                  if(i != numParams) SemErr("invalid procedure call, procedure takes " + numParams + " parameters");
-                                }
-                            .)
-
-    ')' ';'                 (.   
-                                int currentStackLevel = openScopes.Count;
-                                int lexicalLevelDifference = Math.Abs(openScopes.Count - sym.Item4);
-                                string procedureLabel = getLabelForProcedureName(lexicalLevelDifference, sym.Item1);
-                                program.Add(new Instruction("", "Call " + lexicalLevelDifference + " " + procedureLabel));
-                            .)
-   )
+  | ProcedureCall<sym>
+  )
 
 | "if"
   '(' Expr<out type> ')'        (.
@@ -884,7 +1070,6 @@ Stat                            (.  TastierType type, type1; string name, name1;
                                   }
 				                        .)
    } ';'
-
 | '{' { Stat | VarDecl } '}' .
 
 /*------------------------------------------------------------------------*/
