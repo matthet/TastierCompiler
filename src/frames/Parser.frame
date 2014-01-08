@@ -35,6 +35,7 @@ using Instruction = System.Tuple<string,string>;
 using StackAddress = System.Tuple<int, int>;
 using ArrayDecl = System.Tuple<string, System.Collections.Generic.List<int>>;
 using RecordDecl = System.Tuple<string, System.Collections.Generic.List<System.Tuple<string,int,int>>>;
+using RecordInstance = System.Tuple<string, string>;
 using RecordDeclMember = System.Tuple<string,int,int>;
 using ParameterisedProc = System.Tuple<string, System.Collections.Generic.List<System.Tuple<string, int, int, int, int>>>;
 
