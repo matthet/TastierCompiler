@@ -130,14 +130,24 @@ List<ArrayDecl> arraysList = new List<ArrayDecl>();
 
   recDeclsList is a List of record declarations; name of record and details of record members
   e.g. record aRecord {
-              int a;
-              string b;
-              int c[3][2];
-              };
+             Members;
+       };
        recDeclsList.Add(new RecDecl("aRecord", List(members))) 
 */
 
 List<RecordDecl> recDeclsList = new List<RecordDecl>();
+
+/*
+  using RecordInstance = System.Tuple<string, string>;
+
+  recInstsList is a List of declared record instances. 
+  e.g. record aRecord {
+             Members;
+       };
+
+       record aRecord myRecord;
+      recInstsList.Add(new RecordInstance(myRecord, aRecord);
+*/
 
 List<RecordInstance> recInstsList = new List<RecordInstance>();
 
@@ -160,7 +170,25 @@ public static string Reverse(string s) {
     return new string(charArray);
 }
 
-int nextFreeAddress = 0;
+/*
+  int nextFreeAddress = 0;
+  Global counter that tracks where the next free address is memory is.
+  Useful for strings and arrays. 
+
+  E.g.
+  if a string variable s is to be assigned, s := "hello world"
+  The string "hello world" must be stored in memory. To assign this
+  string to s, we store the address where the string starts in the 
+  variable's address. Therefore acting like a pointer! As the length of
+  the string is stored as the first address of the string, we then know how
+  many addresses to read in when we want to load the variable s! 
+
+  If say, another variable is declared in the program after this string is
+  assigned, we know where the next free address is because we incremented the
+  counter for each character of the string, we store this new variable at this
+  address without fear of overwriting the string.
+*/
+int nextFreeAddress = 0; 
 
 /*
   Every time we encounter a new procedure declaration in the program, we want
@@ -352,8 +380,28 @@ Expr<out TastierType type>      (.  TastierType type1; Instruction inst; .)
   ].
 
 /*------------------------------------------------------------------------*/
+/*
+  aString is used when a string is to be stored in memory.
+  Strings are stored in data memory.
 
-StringStore                     (.  int len = 0; .)
+  e.g. string s;  //address 3
+       string st; //address 4
+
+       s := "hello world"
+       
+       The variable s is at address 3.
+
+       When s is to be assigned with a string e.g. "hello world":
+       The length of the string is stored at the next free address in memory, 
+       e.g. 11 at address 5. The string is reversed and each character is stored 
+       individually in memory.. 6, 7, 8... Finally, the starting address of the 
+       string is stored in the variable address. So, address 3 will hold the 
+       value 5 (like a pointer). From this address, the length of the string is 
+       found (11) and we know how many memory addresses to load to load 
+       the entire string.
+*/
+
+aString                     (.  int len = 0; .)
 = string                        (.
                                   foreach(char c in t.val) {
                                     if(c != '"') len = len + 1;
@@ -377,17 +425,35 @@ StringStore                     (.  int len = 0; .)
 .
 
 /*------------------------------------------------------------------------*/
+/*
+  loadStoArrayIndex<bool store, Symbol sym> is called when we want to load 
+  or store an array element.
 
+  e.g. array[1][2] := 6; i := array[1][2]; write array[3][2][1]; etc.
+
+  It takes a Boolean value ‘store’ which is given as true or false
+  depending on whether we want to load or store an array address. It also 
+  takes the Symbol that represents the array, supplied by the caller; 
+  Stat or Factor.
+
+*/
 loadStoArrayIndex
 <bool store, Symbol sym>        (.  List<int> indexes = new List<int>(); ArrayDecl temp = null; int n, arrLen = 1; 
                                     TastierType type;
                                 .)
-=
+=                               //Each number represents the index address of a dimension. 
    '[' number                   (.  n = Convert.ToInt32(t.val); indexes.Add(n); .)    
     ']'     
     { '[' number                (.  n = Convert.ToInt32(t.val); indexes.Add(n); .)    
       ']'
-    }       
+    }                           /*
+                                  1. Make sure it is a declared array that is being indexed
+                                  2. Ensure all indexes are within bounds of dimensions
+                                  3. Calculate the offset: ((index i * dimension i+1) + index i+1) * dimension i+2 etc..
+                                  4. Make sure offset is within array bounds
+                                  5. Load or Store
+
+                                */
                                 (.  if((TastierKind)sym.Item2 != TastierKind.ArrayVar) SemErr ("cannot index into non-array");
 
                                     foreach (ArrayDecl a in arraysList) {
@@ -424,7 +490,7 @@ Factor<out TastierType type>    (.  Symbol sym; string name; bool store = false;
                                     sym = lookup(openScopes, name);
                                     if (sym == null) SemErr("reference to undefined variable " + name);
                                 .)
-    ( loadStoArrayIndex
+    ( loadStoArrayIndex         //A single array index to be loaded e.g. i := myArray[3][2][0];
       <store, sym>
     |                           (.  if ((TastierKind)sym.Item2 != TastierKind.Var && (TastierKind)sym.Item2 != TastierKind.Const) 
                                       SemErr ("variable expected");
@@ -442,7 +508,7 @@ Factor<out TastierType type>    (.  Symbol sym; string name; bool store = false;
                                     program.Add(new Instruction("", "Const " + n));
                                     type = TastierType.Integer;
                                 .)
-  | StringStore                 (.  type = TastierType.String; .)
+  | aString                 (.  type = TastierType.String; .)
   | char                        (.  foreach(char c in t.val) {
                                       if(c != '\'') program.Add(new Instruction("", "Const " + Convert.ToInt32(c)));
                                     }
@@ -484,8 +550,8 @@ ProcDecl                        (.  string name; string label; Scope currentScop
                                     openScopes.Push(new Scope());
                                     currentScope = openScopes.Peek();
                                 .)
-  '(' { ParamDecl<name> 
-        { ',' ParamDecl<name> }
+  '(' { ParamDecl<name>         
+        { ',' ParamDecl<name> } // 0 or N parameters in Procedure (Extra Feature)
       } 
   ')'
   '{'                           (.
@@ -559,14 +625,35 @@ SimExpr<out TastierType type>   (.  TastierType type1; Instruction inst; .)
   }.
 
 /*------------------------------------------------------------------------*/
+/*
+  Parameter is called from ProcedureCall. It is passed the parameter symbol.
+  E.g. void myProcedure(int a, Record Tag aTag){
+          ...
+       }
 
-Parameter<Symbol tempSym1>      (.  string name1, recAttr = "", recParam = ""; ArrayDecl arrAttr = null, arrParam = null; Symbol tempSym;
-                                    bool minus = false, store = false; int arrLen = 1; List<RecordDeclMember> recDeclVars = new List<RecordDeclMember>();
+  A procedure call is of the form e.g. myProcedure(17, singleTag);
+                                       myProcedure(i, singleTag);
+                                       etc.
+
+  ProcedureCall passes the procedure parameter (variable taking value(s): a, aTag)
+  Parameter<Symbol tempSym1> then executes instructions depending on whether the
+  attribute (variable giving value(s): 17, i, singleTag) is an ident (i), a specific 
+  array address (arr[1][1]), an array ident (arr), a record, a number (17), a 
+  character, a string, "true" or "false". An integer variable / integer array 
+  element / number could be passed as a minus value.
+
+  An attribute being passed must be of the same type as the expecting parameter.
+
+*/
+
+Parameter<Symbol tempSym1>      (.  string name1, recAttr = "", recParam = ""; bool minus = false, store = false; int arrLen = 1; 
+                                    List<int> attrLengths = new List<int>(); List<int> paramLengths = new List<int>();
+                                    Symbol tempSym; List<RecordDeclMember> recDeclVars = new List<RecordDeclMember>(); 
                                 .)
 = (                           
     ['-'                        (.  minus = true; .)
     ]                         
-    Ident<out name1>            (.
+    Ident<out name1>            (.  
                                     tempSym = lookup(openScopes, name1);
                                     if (tempSym == null) SemErr("reference to undefined constant or variable " + name1);
                                     if ((TastierKind)tempSym.Item2 != TastierKind.Proc && (TastierKind)tempSym.Item2 != TastierKind.ArrayVar
@@ -574,10 +661,16 @@ Parameter<Symbol tempSym1>      (.  string name1, recAttr = "", recParam = ""; A
 
                                     if ((int)tempSym.Item3 != (int)tempSym1.Item3) SemErr ("invalid procedure call, incompatible types");
                                     if ((minus == true) && ((int)tempSym.Item3 != (int)TastierType.Integer)) SemErr ("invalid procedure call, integer expected");
-                                    if ((minus == true) && ((TastierKind)tempSym.Item2 == TastierKind.ArrayVar)) SemErr("syntax error: '-'");
                                 .)
-      ( loadStoArrayIndex
-        <store, tempSym>        (.  if (minus == true) {
+      ( loadStoArrayIndex       
+        <store, tempSym>        /*
+                                  Passing a single array address.
+                                  If the array is of type integer,
+                                  a single negated element can be passed.
+                                  I.e. myProcedure(array[1][2][1]);
+                                       myProcedure(-myRecord.array[1][2][1]);
+                                */
+                                (.  if (minus == true) {
                                       program.Add(new Instruction("", "Neg"));
                                       program.Add(new Instruction("", "Const 1"));
                                       program.Add(new Instruction("", "Add"));
@@ -587,15 +680,24 @@ Parameter<Symbol tempSym1>      (.  string name1, recAttr = "", recParam = ""; A
       |                         (.  
                                   if (tempSym.Item4 == 0) {
                                       if ((TastierKind)tempSym.Item2 == TastierKind.ArrayVar) {
+                                        /*
+                                        If an entire array is to be passed,
+                                        the expecting parameter must also be 
+                                        an array of the same dimensions and 
+                                        length. Every address in the supplying
+                                        attribute must be copied to the expecting
+                                        parameter.
+                                      */
+                                        if ((minus == true) && ((TastierKind)tempSym.Item2 == TastierKind.ArrayVar)) SemErr("syntax error: '-'");
                                         foreach (ArrayDecl a in arraysList) {
-                                          if((a.Item1).Equals(name1)) { arrAttr = a; break; }
+                                          if((a.Item1).Equals(name1)) { attrLengths = a.Item2; break; }
                                         }
                                         foreach (ArrayDecl a in arraysList) {
-                                          if((a.Item1).Equals(tempSym1.Item1)) { arrParam = a; break; }
+                                          if((a.Item1).Equals(tempSym1.Item1)) { paramLengths = a.Item2; break; }
                                         }
 
-                                        if ((arrAttr.Item2).SequenceEqual(arrParam.Item2)) {
-                                          for (int j = 0; j < arrAttr.Item2.Count; j++) arrLen = arrLen * arrAttr.Item2[j];
+                                        if ((attrLengths).SequenceEqual(paramLengths)) {
+                                          for (int j = 0; j < attrLengths.Count; j++) arrLen = arrLen * attrLengths[j];
                                         } else { SemErr ("incompatible array attribute"); }
 
                                         for (int k = 0; k < arrLen; k++) {
@@ -603,31 +705,40 @@ Parameter<Symbol tempSym1>      (.  string name1, recAttr = "", recParam = ""; A
                                           program.Add(new Instruction("", "StoG " + (tempSym1.Item5+3+k)));
                                         }
                                       } else if ((TastierKind)tempSym.Item2 == TastierKind.Record) {
-                                          int l = 1;
-                                          foreach (RecordInstance r in recInstsList) {
-                                            if((r.Item1).Equals(name1)) { recAttr = r.Item2; break; }
+                                        /*
+                                        If a record is to be passed, the passing
+                                        and receiving records must be instances
+                                        of the same record declaration. Each value
+                                        for each member of the record being passed
+                                        must be passed to each member of the record
+                                        receiving.
+                                      */
+                                        int l = 1;
+                                        foreach (RecordInstance r in recInstsList) {
+                                          if((r.Item1).Equals(name1)) { recAttr = r.Item2; break; }
+                                        }
+                                        foreach (RecordInstance r in recInstsList) {
+                                          if((r.Item1).Equals(tempSym1.Item1)) { recParam = r.Item2; break; }
+                                        }
+                                        if(recAttr.Equals(recParam)) {
+                                          foreach (RecordDecl r in recDeclsList) {
+                                            if((r.Item1).Equals(recAttr)) { recDeclVars = r.Item2; break; }
                                           }
-                                          foreach (RecordInstance r in recInstsList) {
-                                            if((r.Item1).Equals(tempSym1.Item1)) { recParam = r.Item2; break; }
-                                          }
-                                          if(recAttr.Equals(recParam)) {
-                                            foreach (RecordDecl r in recDeclsList) {
-                                              if((r.Item1).Equals(recAttr)) { recDeclVars = r.Item2; break; }
-                                            }
-                                            foreach (RecordDeclMember r in recDeclVars) {
-                                              if (r.Item3 == -1) {
-                                                program.Add(new Instruction("", "LoadG " + (tempSym.Item5+3+l)));
-                                                program.Add(new Instruction("", "StoG " + (tempSym1.Item5+3+l)));
-                                              } else { //array
-                                                for(int m = 0; m < r.Item3; m++) {
-                                                  program.Add(new Instruction("", "LoadG " + (tempSym.Item5+3+m)));
-                                                  program.Add(new Instruction("", "StoG " + (tempSym1.Item5+3+m)));
-                                                }
+                                          foreach (RecordDeclMember r in recDeclVars) {
+                                            if (r.Item3 == -1) {
+                                              program.Add(new Instruction("", "LoadG " + (tempSym.Item5+3+l)));
+                                              program.Add(new Instruction("", "StoG " + (tempSym1.Item5+3+l)));
+                                            } else { //array member
+                                              for(int m = 0; m < r.Item3; m++) {
+                                                program.Add(new Instruction("", "LoadG " + (tempSym.Item5+3+m)));
+                                                program.Add(new Instruction("", "StoG " + (tempSym1.Item5+3+m)));
                                               }
-                                              l = l + 1;
                                             }
+                                            l = l + 1;
                                           }
+                                        }
                                       } else {
+                                        /* global variable or string being passed. */
                                         program.Add(new Instruction("", "LoadG " + (tempSym.Item5 + 3)));
                                         if (minus == true) {
                                           program.Add(new Instruction("", "Neg"));
@@ -637,6 +748,7 @@ Parameter<Symbol tempSym1>      (.  string name1, recAttr = "", recParam = ""; A
                                         program.Add(new Instruction("", "StoG " + (tempSym1.Item5 + 3)));
                                       }
                                     } else {
+                                      /* local integer / boolean / character variable being passed. */
                                       int lexicalLevelDifferencetempSym = Math.Abs(openScopes.Count - tempSym.Item4)-1;
                                       program.Add(new Instruction("", "Load " + lexicalLevelDifferencetempSym + " " + tempSym.Item5));
                                       if (minus == true) {
@@ -649,7 +761,13 @@ Parameter<Symbol tempSym1>      (.  string name1, recAttr = "", recParam = ""; A
                                     minus = false; 
                                 .)
       )
-    | number                    (.  
+    | number                    (.  /* myProcedure(int i) {
+                                         ...
+                                       }
+                                       ...
+                                       myProcedure(78);
+                                       myProcedure(-12);
+                                    */
                                     if ((int)tempSym1.Item3 != (int)TastierType.Integer) SemErr ("invalid procedure call, incompatible types");
                                     int n = Convert.ToInt32(t.val);
                                     program.Add(new Instruction("", "Const " + n));
@@ -671,7 +789,7 @@ Parameter<Symbol tempSym1>      (.  string name1, recAttr = "", recParam = ""; A
                                     }
                                     program.Add(new Instruction("", "StoG " + (tempSym1.Item5 + 3)));
                                 .)
-    | StringStore               (.
+    | aString               (.
                                     if ((int)tempSym1.Item3 != (int)TastierType.String) SemErr ("invalid procedure call, incompatible types"); 
                                     program.Add(new Instruction("", "StoG " + (tempSym1.Item5 + 3)));
                                 .)
@@ -687,7 +805,20 @@ Parameter<Symbol tempSym1>      (.  string name1, recAttr = "", recParam = ""; A
                                 .)
     ) .  
 
-/*------------------------------------------------------------------------*/                    
+/*------------------------------------------------------------------------*/ 
+/*
+  ProcedureCall is entered, as expected, when a call to a procedure is made.
+  e.g. myProcedure(a, b, c);
+
+  If the procedure was declared with parameters, its name and parameters
+  would have been stored in the list of Parameterised Procedures.
+  For each parameter in the procedure declaration, 'Paramater' is called
+  which matches the attribute being passed to the parameter receiving.
+
+  If a procedure was declared with for example, two parameters of type int 
+  and record. A call to this procedure MUST include two attributes of type
+  int and record, in this order.
+*/                   
 
 ProcedureCall<Symbol sym>       (.  int i = 0, numParams = 0;
                                     Symbol tempSym1 = null; List<Symbol> tempSymList = new List<Symbol>(); 
@@ -730,7 +861,7 @@ Stat                            (.  TastierType type, type1; string name; Symbol
                                     sym = lookup(openScopes, name);
                                     if (sym == null) SemErr("reference to undefined constant or variable " + name); 
                                 .)
-  ( ( loadStoArrayIndex
+  ( ( loadStoArrayIndex         //A single array index to be assigned e.g. myArray[3][2][0] := "banana";
       <store, sym>
     | ":="                            
       Expr<out type>            (.  if ((TastierKind)sym.Item2 != TastierKind.Var) SemErr ("variable expected");
@@ -843,17 +974,17 @@ Stat                            (.  TastierType type, type1; string name; Symbol
  {
   "case" Expr<out type1> ':'    (.  if (type != type1) SemErr("conflicting types");
                                     openLabels.Push(generateLabel());
-                                    program.Add(new Instruction("", "Equ"));
-                                    program.Add(new Instruction("", "FJmp " + openLabels.Peek()));
+                                    program.Add(new Instruction("", "Equ")); //check for equality between the switch and case variable
+                                    program.Add(new Instruction("", "FJmp " + openLabels.Peek())); //jump if not equal
                                 .)
   Stat
   "break" ';'                   (.
                                     string temp = openLabels.Pop();
-                                    program.Add(new Instruction("", "Jmp " + openLabels.Peek()));
+                                    program.Add(new Instruction("", "Jmp " + openLabels.Peek())); //jump if case proved true, skip other cases
                                     program.Add(new Instruction(temp, "Nop"));
                                 .)
  }
-  "default" ':' Stat '}'        (.  program.Add(new Instruction(openLabels.Pop(), "Nop")); .)
+  "default" ':' Stat '}'        (.  program.Add(new Instruction(openLabels.Pop(), "Nop")); .) //case end label
 
 | "read"
   Ident<out name> ';'           (.
@@ -915,9 +1046,13 @@ Tastier                         (.  string name; .)
                                     openScopes.Push(new Scope());
                                 .)
   '{'
-  { RecordDecl }
-  [ ConstDecl ]
-  { VarDecl | ProcDecl }
+    /*
+      Record Declarations first in the program followed by
+      Constant Declaration before Variables & Procedures.
+    */
+    { RecordDecl }  
+    [ ConstDecl ]     
+    { VarDecl | ProcDecl }
   '}'                           (.
                                     if (openScopes.Peek().Count == 0) {
                                       Warn("Warning: Program " + name + " is empty ");
@@ -977,9 +1112,9 @@ ConstDecl
 
 ConstList                       (.  string name; Scope currentScope = openScopes.Peek();.)
 =  Ident<out name>
-                                (.  currentScope.Push(new Symbol(name, (int)TastierKind.Const, (int)TastierType.Integer,openScopes.Count-1, nextFreeAddress)); .)
-  "="			        
-  number 			                  (.
+                                
+  ":="			        
+  number 			                  (.  currentScope.Push(new Symbol(name, (int)TastierKind.Const, (int)TastierType.Integer,openScopes.Count-1, nextFreeAddress));
 				                            int n = Convert.ToInt32(t.val);
 				                            constDecls.Push(new Instruction("", "StoG " + (nextFreeAddress+3)));
                                     constDecls.Push(new Instruction("", "Const " + n));
@@ -987,17 +1122,41 @@ ConstList                       (.  string name; Scope currentScope = openScopes
 				                        .)
   ';'.
 /*------------------------------------------------------------------------*/
+/*
+  Record Declarations exist only at the beginning of a program.
+  All record declarations are stored in a list. Each Record declaration in that
+  list is comprised of <the name of the record decl, List of its members>.  
+  e.g. record aRecord {
+              int a;
+              string b;
+              int c[3][2];
+              };
+
+  recDeclsList.Add(new RecDecl("aRecord", List(members)))
+  Each Member in the list of members has details of its name, type and amount of 
+  Memory required if an array. 
+*/
 
 RecordDecl                      (.  string name, name1; TastierType type; List<RecordDeclMember> recDeclVars = new List<RecordDeclMember>();
                                     int arrDecl = -1, arrLen = 1; List<int> lengths = new List<int>(); Scope currentScope = openScopes.Peek();
                                 .)
 = "record"                      
-  Ident<out name>               (.  currentScope.Push(new Symbol(name, (int)TastierKind.Record, (int)TastierType.Undefined, openScopes.Count-1, nextFreeAddress));
+  Ident<out name>               
+                                  /* 
+                                     Push a new Record Symbol on to the global scope.
+                                     Used to create the ‘header file’
+                                  */
+                                (.  currentScope.Push(new Symbol(name, (int)TastierKind.Record, (int)TastierType.Undefined, openScopes.Count-1, nextFreeAddress));
                                     nextFreeAddress = nextFreeAddress + 1;
                                 .)
   '{' 
-     Type<out type>
-     Ident<out name1>          
+     Type<out type>           
+     Ident<out name1>           /* 
+                                  A record decl. must have at least one member
+                                  If member is an array - add it to the list of arrays
+                                  Add member to the list of members for this record in the list of record declarations
+                                  RecordDeclMember.Item3 will hold the length if member is array or -1 if not array
+                                */
         { '['number             (.  int n = Convert.ToInt32(t.val);
                                     lengths.Add(n); arrLen = arrLen * n; arrDecl = arrLen;
                                 .)
@@ -1044,6 +1203,24 @@ RecordDecl                      (.  string name, name1; TastierType type; List<R
         '}' ';' .
 
 /*------------------------------------------------------------------------*/
+/*
+  RecordInst is entered when a single instance of a declared record is 
+  found in a program.
+  e.g. record aRecord singleRec; (1)
+
+  RecordInst takes a ParameterisedProc pp as a parameter. This will have a 
+  value if this function has been called due to a a record instance being 
+  declared as a parameter in a Procedure Declaration. 
+  e.g. myProcedure(record aRecord singleRec){ (2)
+        ...
+       }
+  Otherwise, if RecordInst has been called from VarDecl because pattern (1)
+  was recognised (i.e. instance not a parameter of a procedure declaration),
+  pp will be null. We must pass pp to this function if a record instance is 
+  a parameter for a procedure so that we can add its symbol to the list of
+  parameters for the procedure in question.
+
+*/
 
 RecordInst
 <ParameterisedProc pp>          (.  string name, name1; Scope currentScope = openScopes.Peek(); bool recordValid = false; 
@@ -1051,14 +1228,20 @@ RecordInst
                                 .)
 = "record"                      
   Ident<out name>
-  Ident<out name1>              (.  
+  Ident<out name1>              (.  /* Check that this instance refers to a declared record. */
                                     foreach (RecordDecl r in recDeclsList) {
                                       if((r.Item1).Equals(name)){
                                         recordValid = true; recDeclVars = r.Item2;
                                         break;
                                       }
                                     }
-
+                                    /*
+                                       Push this instance record symbol on stack. Add this instance name and the name 
+                                       of the record to which it is an instance of to a list of record instances. The
+                                       reason for the list of record instances is that if a parameter of a procedure is
+                                       set to take a record, we must make sure that when we pass a record as an attribute,
+                                       the passing and receiving records are instances of the same record declaration!
+                                    */
                                     if (recordValid == true) {
                                       Symbol sym = new Symbol(name1, (int)TastierKind.Record, (int)TastierType.Undefined, 0, nextFreeAddress);
                                       currentScope.Push(sym);
@@ -1066,21 +1249,23 @@ RecordInst
                                       recInstsList.Add(new RecordInstance(name1, name));
 
                                       if (pp != null) pp.Item2.Add(sym); //Record Instance is a Procedure Parameter
-
+                                      /* 
+                                         Go through the list of members and for each, create a new symbol of this record 
+                                         instance. Allocate memory for each member, lengthOfArray addresses if array 
+                                         member. 
+                                      */
                                       foreach (RecordDeclMember r in recDeclVars) {
                                         if (r.Item3 == -1) {
-                                          program.Add(new Instruction("", "Const " + 0));
-                                          program.Add(new Instruction("", "StoG " + (nextFreeAddress+3)));
+                                          /* 
+                                            Name of an instance member of the form (instance name + '.' + member name) so when we want to
+                                            access this member, it is easily found e.g. myRecord.i := 7.
+                                          */
                                           currentScope.Push(new Symbol((name1 + '.' + r.Item1), (int)TastierKind.Var, r.Item2, 0, nextFreeAddress));
                                           nextFreeAddress = nextFreeAddress + 1;
 
-                                        } else { // array 
+                                        } else { // array member: allocate space for each address in array
                                           currentScope.Push(new Symbol((name1 + '.' + r.Item1), (int)TastierKind.ArrayVar, r.Item2, 0, nextFreeAddress));
-                                          for (int i = 0; i < r.Item3; i++) {
-                                            program.Add(new Instruction("", "Const " + 0));
-                                            program.Add(new Instruction("", "StoG " + (nextFreeAddress+3)));
-                                            nextFreeAddress = nextFreeAddress + 1;
-                                          }
+                                          nextFreeAddress = nextFreeAddress + r.Item3; //array length
 
                                           List<int> templengths = new List<int>();
                                           foreach (ArrayDecl a in arraysList) {
@@ -1089,20 +1274,24 @@ RecordInst
                                           arraysList.Add(new ArrayDecl((name1 + '.' + r.Item1), templengths));
                                         } 
                                       }
-                                    } else { SemErr ("cannot instantiate " + name1 + " on non resolved record variable " + name); }
+                                    } else { //attempt to make an instance of a record that has not been declared (does not exist!)
+                                      SemErr ("cannot instantiate " + name1 + " on non resolved record variable " + name); } 
                                 .)
-    (';'                      (. if (pp != null) SemErr ("syntax error: ';'"); .)
-    |                         (. if (pp == null) SemErr ("';' expected"); .)
-    ) .
+.
 
 /*------------------------------------------------------------------------*/
 
 VarDecl
                                 (.  string name; TastierType type; Scope currentScope = openScopes.Peek(); int arrLen = 1;
-                                    bool arrDecl = false; List<int> lengths = new List<int>(); ParameterisedProc pp = null;
+                                    bool arrDecl = false; List<int> lengths = new List<int>();
                                 .)
 = Type<out type>
-  Ident<out name>                            
+  Ident<out name>               /*
+                                    A VarDecl can be of the form e.g.'int a;', 'string s;' or
+                                    e.g.'int a[2][3][2]' if an array. The length of an array is
+                                    calculated by multiplying the length of the dimensions.
+                                    Memory must be kept free for each address in an array declaration.
+                                */             
   { '['number                   (.  int n = Convert.ToInt32(t.val);
                                     lengths.Add(n); arrLen = arrLen * n; arrDecl = true;
                                 .)
@@ -1112,11 +1301,7 @@ VarDecl
                                       currentScope.Push(new Symbol(name, (int)TastierKind.ArrayVar, (int)type, 0, nextFreeAddress));
                                       arraysList.Add(new ArrayDecl(name, lengths));
 
-                                      for (int i = 0; i < arrLen; i++) {
-                                        program.Add(new Instruction("", "Const " + 0));
-                                        program.Add(new Instruction("", "StoG " + (nextFreeAddress + 3)));
-                                        nextFreeAddress = nextFreeAddress + 1;
-                                      }
+                                      nextFreeAddress = nextFreeAddress + arrLen;
 
                                       arrDecl = false; lengths = new List<int>(); arrLen = 1;
                                     } else if (openScopes.Count == 1 || type == TastierType.String) {
@@ -1137,11 +1322,7 @@ VarDecl
                                       currentScope.Push(new Symbol(name, (int)TastierKind.ArrayVar, (int)type, 0, nextFreeAddress));
                                       arraysList.Add(new ArrayDecl(name, lengths));
 
-                                      for (int i = 0; i < arrLen; i++) {
-                                        program.Add(new Instruction("", "Const " + 0));
-                                        program.Add(new Instruction("", "StoG " + (nextFreeAddress + 3)));
-                                        nextFreeAddress = nextFreeAddress + 1;
-                                      }
+                                      nextFreeAddress = nextFreeAddress + arrLen;
 
                                       arrDecl = false; lengths = new List<int>(); arrLen = 1;
                                     } else if (openScopes.Count == 1 || type == TastierType.String) {
@@ -1152,10 +1333,29 @@ VarDecl
                                     }
                                 .)
       } ';'                          
-  | RecordInst<pp> .
+  | RecordInst<null> ';' .  //record instance is not a parameter of a procedure
 
 /*------------------------------------------------------------------------*/
+/*
+  ParamDecl is called during a Procedure Declaration, each time we come
+  across a parameter as part of the proc. decl.
 
+  The first time we call this function i.e. when we come across the first
+  parameter in a procedure declaration, we create a 'ParameterisedProc' tuple 
+  that will represent the procedure beig declared and its parameters.
+
+  Item1 is the name of a procedure that has parameters, Item2 is a list of 
+  the symbols of these parameters. We keep record of this so that when a 
+  call is made to a procedure, we can do all the necessary checks on attributes 
+  being passed compared to parameters that are receiving i.e. same dimensions 
+  & length if array, same type, same record declaration.
+
+  For each parameter in the procedure declaration, we push the symbol on to the
+  procedure scope, in the same manner as VarDecl or RecordInst. The 
+  difference here is that we also store the symbol in a list of parameters, and 
+  together with the name of the procedure, enter this into a list of
+  Parameterised Procedures.
+*/
 ParamDecl<string ProcedureName>
                                 (.  string name; TastierType type; Scope currentScope = openScopes.Peek(); int arrLen = 1;
                                     bool arrDecl = false; List<int> lengths = new List<int>(); ParameterisedProc pp = null;
@@ -1183,11 +1383,7 @@ ParamDecl<string ProcedureName>
                                       arraysList.Add(new ArrayDecl(name, lengths));
                                       pp.Item2.Add(sym);
 
-                                      for (int i = 0; i < arrLen; i++) {
-                                        program.Add(new Instruction("", "Const " + 0));
-                                        program.Add(new Instruction("", "StoG " + (nextFreeAddress + 3)));
-                                        nextFreeAddress = nextFreeAddress + 1;
-                                      }
+                                      nextFreeAddress = nextFreeAddress + arrLen;
 
                                     } else {
                                       Symbol sym = new Symbol(name, (int)TastierKind.Var, (int)type, 0, nextFreeAddress);
@@ -1196,7 +1392,8 @@ ParamDecl<string ProcedureName>
                                       pp.Item2.Add(sym);
                                     }
                                 .)
-  | RecordInst<pp>
+  | RecordInst<pp>  //Record instance as parameter e.g. myProcedure(record aRecord singleRec){ ... }
+                    //pp is the ParameterisedProc tuple representing the procedure with parameters in question
 .
 
 END Tastier.
